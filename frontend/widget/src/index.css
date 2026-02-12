@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Widget Base Styles */
+body {
+  @apply bg-transparent;
+  /* Widget might be overlaid */
+}

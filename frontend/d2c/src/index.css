@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Rest of previous CSS vars... */
+  --bg-dark: 220 30% 8%;
+  --color-primary-hue: 220;
+  --color-primary-sat: 90%;
+  --color-primary-light: 40%;
+  --color-accent-hue: 330;
+  --color-accent-sat: 80%;
+  /* ... simplified for tailwind integration */
+}
+
+/* Custom classes that use Tailwind's @apply or just standard CSS */
+.btn {
+  @apply inline-flex items-center justify-center px-6 py-2 rounded-xl font-semibold transition-all cursor-pointer border-none;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, hsl(220 90% 40%), hsl(220 90% 30%));
+  @apply text-white shadow-lg shadow-blue-500/20 hover:-translate-y-0.5 hover:shadow-blue-500/40;
+}
+
+.btn-secondary {
+  @apply bg-white/5 border border-white/10 text-white hover:bg-white/10;
+}
+
+.card {
+  @apply bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-6 shadow-xl;
+}

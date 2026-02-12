@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # --- Backend ---
+  backend:
+    build: .
+    volumes:
+      - ./app:/app/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/insurbridge
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=hackathon_secret_key_change_me
+    depends_on:
+      - db
+      - redis
+
+  # --- Frontend: D2C App ---
+  d2c-app:
+    build: ./frontend/d2c
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  # --- Frontend: Widget ---
+  widget-service:
+    build: ./frontend/widget
+    ports:
+      - "3001:80"
+
+  # --- Frontend: Admin Portal ---
+  portal-app:
+    build: ./frontend/portal
+    ports:
+      - "3002:80"
+    depends_on:
+      - backend
+
+  # --- Infrastructure ---
+  db:
+    image: postgres:15-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=insurbridge
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:
