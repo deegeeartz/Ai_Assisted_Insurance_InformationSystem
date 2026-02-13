@@ -9,12 +9,17 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/insurbridge
+      - SQLALCHEMY_DATABASE_URI=postgresql+asyncpg://postgres:postgres@db:5432/insurbridge
+      - POSTGRES_SERVER=db
       - REDIS_URL=redis://redis:6379/0
       - SECRET_KEY=hackathon_secret_key_change_me
+      - GOOGLE_API_KEY=AIzaSyCxXIshqurFws8v94YeZZ-T-FMtFeHL83c
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: on-failure
 
   # --- Frontend: D2C App ---
   d2c-app:
@@ -49,6 +54,11 @@ services:
       - POSTGRES_DB=insurbridge
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -57,3 +67,4 @@ services:
 
 volumes:
   postgres_data:
+

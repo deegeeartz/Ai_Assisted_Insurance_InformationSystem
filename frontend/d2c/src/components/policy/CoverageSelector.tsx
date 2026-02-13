@@ -1,6 +1,6 @@
 import { Heart, Activity, Zap, Umbrella, Check, Plus } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { AVAILABLE_COVERAGE, CoverageBlock } from '../../services/api';
+import { motion } from 'framer-motion';
+import { AVAILABLE_COVERAGE } from '../../services/api';
 import clsx from 'clsx';
 
 // Icon mapping

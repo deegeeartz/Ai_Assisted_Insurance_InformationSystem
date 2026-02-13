@@ -12,8 +12,7 @@ export function Header() {
                style={{ background: 'linear-gradient(135deg, hsl(var(--color-primary-hue) var(--color-primary-sat) 50%), hsl(var(--color-accent-hue) var(--color-accent-sat) 50%))' }}>
             <Shield className="text-white w-6 h-6" />
           </div>
-          <span className="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70"
-                style={{ backgroundImage: 'linear-gradient(to right, white, hsl(var(--text-secondary)))', -webkitBackgroundClip: 'text' }}>
+          <span className="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70">
             InsurBridge
           </span>
         </div>

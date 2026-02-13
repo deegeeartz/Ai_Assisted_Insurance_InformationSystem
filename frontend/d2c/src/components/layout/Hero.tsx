@@ -29,8 +29,7 @@ export function Hero() {
             className="text-5xl md:text-7xl font-bold tracking-tight leading-tight"
           >
             Insurance that <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400"
-                  style={{ backgroundImage: 'linear-gradient(to right, hsl(var(--color-primary-hue) 90% 70%), hsl(var(--color-accent-hue) 90% 70%))', -webkitBackgroundClip: 'text' }}>
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">
               Adapts to You
             </span>
           </motion.h1>
