@@ -33,8 +33,8 @@ async def upload_manual(
     version: str = Form("v1"),
     db: AsyncSession = Depends(get_db),
 ):
-    if not file.filename.endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
+    if not (file.filename.endswith(".pdf") or file.filename.endswith(".txt")):
+        raise HTTPException(status_code=400, detail="Only PDF and TXT files are allowed.")
 
     content = await file.read()
     encrypted_content = encrypt_data(content)

@@ -1,6 +1,6 @@
 import { Heart, Activity, Zap, Umbrella, Check, Plus } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { AVAILABLE_COVERAGE } from '../../services/api';
+import { CoverageBlock } from '../../services/api';
 import clsx from 'clsx';
 
 // Icon mapping
@@ -9,14 +9,15 @@ const ICON_MAP: Record<string, any> = {
 };
 
 interface Props {
+  products: CoverageBlock[];
   selectedIds: string[];
   onToggle: (id: string) => void;
 }
 
-export function CoverageSelector({ selectedIds, onToggle }: Props) {
+export function CoverageSelector({ products, selectedIds, onToggle }: Props) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
-      {AVAILABLE_COVERAGE.map((block) => {
+      {products.map((block) => {
         const isSelected = selectedIds.includes(block.id);
         const Icon = ICON_MAP[block.icon] || Heart;
 

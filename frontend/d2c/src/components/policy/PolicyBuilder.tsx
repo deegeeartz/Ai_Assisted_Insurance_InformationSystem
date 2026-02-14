@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { CoverageSelector } from './CoverageSelector';
-import { calculatePremium, PolicyState } from '../../services/api';
+import { calculatePremium, getProducts, PolicyState, CoverageBlock } from '../../services/api';
 import { Loader2, ArrowRight } from 'lucide-react';
 
 export function PolicyBuilder() {
+  const [products, setProducts] = useState<CoverageBlock[]>([]);
   const [state, setState] = useState<PolicyState>({
     age: 30,
     gender: 'female',
@@ -14,6 +15,11 @@ export function PolicyBuilder() {
 
   const [loading, setLoading] = useState(false);
 
+  // Fetch products on mount
+  useEffect(() => {
+    getProducts().then(setProducts);
+  }, []);
+
   // Recalculate premium on change
   useEffect(() => {
     const updatePremium = async () => {
@@ -22,8 +28,10 @@ export function PolicyBuilder() {
       setState(s => ({ ...s, estimatedPremium: premium }));
       setLoading(false);
     };
-    updatePremium();
-  }, [state.selectedCoverage, state.age]);
+    // Debounce slightly or just run
+    const timer = setTimeout(updatePremium, 500);
+    return () => clearTimeout(timer);
+  }, [state.selectedCoverage, state.age, state.gender, state.occupation]);
 
   const toggleCoverage = (id: string) => {
     setState(prev => {
@@ -72,6 +80,7 @@ export function PolicyBuilder() {
             </div>
 
             <CoverageSelector 
+              products={products}
               selectedIds={state.selectedCoverage}
               onToggle={toggleCoverage}
             />

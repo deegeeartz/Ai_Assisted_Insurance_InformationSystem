@@ -1,0 +1,31 @@
+Gadget Protection Plan Underwriting Manual
+Organization: Heirs Gadget Insurance
+Product ID: gadget_protect_001
+
+1. Eligible Devices
+   - Smartphones (Apple, Samsung, Google, Tecno, Infinix).
+   - Laptops (MacBook, Dell, HP, Lenovo).
+   - Tablets (iPad, Samsung Tab).
+
+2. Eligibility Rules
+   - Device Age: Must be less than 24 months old at purchase of policy.
+   - Proof of Purchase: Original receipt required.
+   - Condition: Screen must be intact (no cracks) at inception.
+     * Remote verification via screen mirror test required.
+
+3. Premium Calculation Rules
+   - Screen Damage Only: 3% of Device Value.
+   - Full Cover (Theft + Damage + Liquid): 6% of Device Value.
+   - Deductible/Excess: 10% of claim value.
+
+4. Coverage Details
+   - Accidental Screen Damage: Replacement of screen.
+   - Liquid Damage: Repair or replacement.
+   - Theft: Replacement (Police report required).
+   - Max Claims: 2 claims per policy year.
+
+5. Exclusions
+   - Cosmetic damage (scratches/dents) that doesn't affect functionality.
+   - Theft from unattended vehicles.
+   - Loss of data.
+   - Accessories (chargers, headphones).

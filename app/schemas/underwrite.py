@@ -4,8 +4,19 @@ from datetime import datetime
 
 
 class CoverageBlock(BaseModel):
-    name: str  # e.g., "Life", "Critical Illness", "Dental"
+    id: str
+    name: str
+    description: str
+    base_price: float
+    icon: str  # Lucide icon name
     enabled: bool = True
+
+
+class CalculatorRequest(BaseModel):
+    age: int
+    gender: str = "male"
+    occupation: str = "employed"
+    selected_coverage: List[str] = []  # IDs of selected blocks
 
 
 class UnderwriteRequest(BaseModel):

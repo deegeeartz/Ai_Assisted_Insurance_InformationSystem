@@ -8,6 +8,23 @@ app = FastAPI(
     version="0.1.0",
 )
 
+from fastapi.middleware.cors import CORSMiddleware
+
+# Configure CORS
+origins = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:3002",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.get("/")
 def read_root():
@@ -31,14 +48,18 @@ app.include_router(partners.router, prefix="/api/v1/partners", tags=["partners"]
 app.include_router(compliance.router, prefix="/api/v1/compliance", tags=["compliance"])
 
 
-# --- Startup: Create Tables ---
+# --- Startup: Create Tables & Seed Data ---
 from app.db.base import Base
-from app.db.session import engine
+from app.db.session import engine, AsyncSessionLocal
 from app.models import core, manual  # Import all models so they register with Base
-
+from app.db.init_db import init_db
 
 @app.on_event("startup")
 async def startup_event():
     # Only create tables if NOT using Alembic (for Hackathon speed)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    
+    # Seed data
+    async with AsyncSessionLocal() as db:
+        await init_db(db)

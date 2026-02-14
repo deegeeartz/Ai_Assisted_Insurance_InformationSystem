@@ -1,0 +1,33 @@
+Term Life Insurance Underwriting Manual
+Organization: Heirs Life Assurance
+Product ID: life_term_001
+
+1. Eligibility Rules
+   - Proposer Age: 18 to 60 years at entry.
+   - Max Coverage Age: 65 years.
+   - Residency: Must be a resident of Nigeria.
+   - BMI: Must be between 18.5 and 30.
+     * If BMI > 30: Load premium by 25%.
+     * If BMI > 35: Require medical exam.
+
+2. Premium Calculation Rules
+   - Base Premium: (Sum Assured * Rate) / 1000.
+   - Rates per 1000 Sum Assured (by Age Band):
+     * 18-30: 2.5
+     * 31-40: 3.5
+     * 41-50: 6.0
+     * 51-60: 12.0
+   - Smoker Loading: Add 50% to premium if smoker.
+   - Occupation Loading:
+     * High Risk (Mining, Pilot, construction): Add 30% loading.
+     * Standard (Office): No loading.
+
+3. Medical Underwriting Limits (Non-Medical Limits)
+   - Up to N10,000,000 Sum Assured: No medicals required (Health Declaration only).
+   - N10m - N50m: Tele-underwriting required.
+   - Above N50m: Full medicals required.
+
+4. Exclusions
+   - Suicide within first 12 months.
+   - Pre-existing conditions not disclosed.
+   - Death resulting from participation in criminal acts.

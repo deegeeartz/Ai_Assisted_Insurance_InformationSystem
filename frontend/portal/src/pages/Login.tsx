@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { login } from '../services/api';
+import { login, fetchMe } from '../services/api';
 import { useState } from 'react';
 import { Lock } from 'lucide-react';
 
@@ -20,25 +20,14 @@ export function Login() {
 
     try {
       const data = await login(email, password);
-      // Mock user object since login endpoint returns token only (in MVP)
-      // We should arguably fetch /me, but for speed assuming role from context or token
-      // Wait, backend /login returns { access_token, token_type }
-      // The frontend needs to fetch user details or we cheat and decode here.
-      // For Hackathon, let's just HARDCODE role mapping based on email for the redirect demo 
-      // OR fetch /me. Fetching /me is better.
+      // Fetch full user details to get the role
+      const user = await fetchMe(data.access_token);
       
-      // Let's assume we fetch /me distinct or just redirect to a role-picker for now if /me not implemented in auth context.
-      // Actually backend /auth/login is standard OAuth2.
-      
-      // I'll skip fetching /me for now and just redirect to /dashboard. 
-      // The dashboard will fail if role is wrong, handling it there.
-      
-      const role = email.includes('partner') ? 'partner' : 'compliance_officer';
-      
-      authLogin(data.access_token, { email, role, full_name: 'User' });
+      authLogin(data.access_token, user);
       navigate('/');
-    } catch (err) {
-      setError('Invalid credentials');
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Invalid credentials');
     } finally {
       setLoading(false);
     }

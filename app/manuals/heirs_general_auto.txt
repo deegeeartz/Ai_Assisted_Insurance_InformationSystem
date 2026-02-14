@@ -1,0 +1,35 @@
+Comprehensive Auto Insurance Underwriting Manual
+Organization: Heirs General Insurance
+Product ID: auto_comprehensive_001
+
+1. Eligibility Rules
+   - Vehicle Age: Must be less than 15 years old.
+     * If vehicle_age > 15: Decline (Refer to Third Party Only).
+   - Driver Age: Must be between 18 and 70 years.
+     * If age < 18: Decline.
+     * If age > 70: Refer to supervisors.
+   - Vehicle Usage: Private or Commercial.
+   - Vehicle Value: Minimum N1,000,000.
+
+2. Premium Calculation Rules
+   - Base Rate: 3% of Vehicle Value.
+   - Age Loading:
+     * If driver_age < 25: Add 10% loading.
+     * If driver_age > 60: Add 5% loading.
+   - No Claim Discount (NCD):
+     * 1 year claim-free: 5% discount.
+     * 2 years: 10% discount.
+     * 3+ years: 15% discount.
+   - Usage Loading:
+     * Commercial usage: Add 20% to base rate.
+
+3. Coverage Benefits
+   - Own Damage: Covered up to 100% of value.
+   - Third Party Property Damage: Limit N1,000,000.
+   - Third Party Bodily Injury: Unlimited.
+   - Medical Expenses: Limit N50,000 per occupant.
+
+4. Exclusions
+   - Driving under influence of alcohol/drugs.
+   - Driving without a valid license.
+   - Usage for racing or speed testing.

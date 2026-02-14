@@ -20,9 +20,9 @@ def get_llm():
         import google.generativeai as genai
         from langchain_google_genai import ChatGoogleGenerativeAI
 
-        genai.configure(api_key=GOOGLE_API_KEY)
+        genai.configure(api_key=GOOGLE_API_KEY, transport="rest")
         _llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-pro-latest",
+            model="gemini-1.5-pro",
             temperature=0.1,
             google_api_key=GOOGLE_API_KEY,
             convert_system_message_to_human=True

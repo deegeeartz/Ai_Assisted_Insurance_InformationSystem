@@ -48,8 +48,21 @@ async def route_to_product(request: UnderwriteRequest, db: AsyncSession) -> Unde
         Which product type best matches their intent? 
         Reply with ONLY the product type name, nothing else.
         """
-        response = llm.invoke([HumanMessage(content=routing_prompt)])
-        inferred_type = response.content.strip()
+        try:
+            response = llm.invoke([HumanMessage(content=routing_prompt)])
+            inferred_type = response.content.strip()
+        except Exception as e:
+            logger.error(f"LLM Routing failed: {e}. Falling back to keyword match.")
+            # Fallback: Check if any product type is in the query string
+            inferred_type = None
+            query_lower = request.natural_language_query.lower()
+            for p_type in available_types:
+                if p_type in query_lower:
+                    inferred_type = p_type
+                    break
+            
+            if not inferred_type:
+                return None
 
         result = await db.execute(
             select(UnderwritingManual)
