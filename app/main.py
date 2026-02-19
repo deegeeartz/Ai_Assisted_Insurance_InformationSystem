@@ -37,10 +37,11 @@ def health_check():
 
 
 # --- Routers ---
-from app.api.endpoints import manuals, underwrite, auth, operations, partners, compliance
+from app.api.endpoints import manuals, underwrite, auth, operations, partners, compliance, config
 
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["Authentication"])
 app.include_router(manuals.router, prefix=f"{settings.API_V1_STR}/manuals", tags=["Manuals"])
+app.include_router(config.router, prefix=f"{settings.API_V1_STR}/config", tags=["Configuration"])
 app.include_router(underwrite.router, prefix=f"{settings.API_V1_STR}", tags=["Underwriting"])
 app.include_router(underwrite.router, prefix="/api/v1/underwrite", tags=["underwrite"])
 app.include_router(operations.router, prefix="/api/v1", tags=["operations"])

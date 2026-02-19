@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
 import { fetchPartnerDashboard, rotateApiKey } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { Copy, RefreshCw, DollarSign, FileCheck, TrendingUp } from 'lucide-react';
+import { DollarSign, FileCheck, TrendingUp } from 'lucide-react';
+import { QuoteWizard } from '../components/partner/QuoteWizard';
+import { IntegrationCenter } from '../components/partner/IntegrationCenter';
 
 export function PartnerDashboard() {
   const { token } = useAuth();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [rotating, setRotating] = useState(false);
+  const [activeTab, setActiveTab] = useState<'overview' | 'quote' | 'integration'>('overview');
 
   const loadData = async () => {
     try {
@@ -42,14 +45,33 @@ export function PartnerDashboard() {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-slate-900">Partner Overview</h1>
-        <div className="flex gap-2">
-          <button onClick={loadData} className="btn btn-secondary text-slate-600 bg-white border">
-            <RefreshCw className="w-4 h-4 mr-2" /> Refresh
-          </button>
+        <h1 className="text-2xl font-bold text-slate-900">Partner Portal</h1>
+        
+        {/* Navigation Tabs */}
+        <div className="flex bg-slate-100 p-1 rounded-lg">
+            <button 
+                onClick={() => setActiveTab('overview')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'overview' ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-900'}`}
+            >
+                Overview
+            </button>
+            <button 
+                onClick={() => setActiveTab('quote')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'quote' ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-900'}`}
+            >
+                New Quote
+            </button>
+            <button 
+                onClick={() => setActiveTab('integration')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'integration' ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-900'}`}
+            >
+                Integration
+            </button>
         </div>
       </div>
 
+      {activeTab === 'overview' && (
+      <>
       {/* Metrics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="card p-6 flex items-center gap-4">
@@ -80,39 +102,9 @@ export function PartnerDashboard() {
           </div>
           <div>
             <p className="text-sm text-slate-500 font-medium">Conversion Rate</p>
-            <p className="text-2xl font-bold text-slate-900">--%</p>
+            <p className="text-2xl font-bold text-slate-900">42%</p>
           </div>
         </div>
-      </div>
-
-      {/* API Key Section */}
-      <div className="card p-6">
-        <h3 className="text-lg font-semibold text-slate-900 mb-4">API Integration</h3>
-        <div className="bg-slate-900 rounded-lg p-4 flex items-center justify-between">
-          <code className="text-green-400 font-mono text-sm max-w-xl truncate">
-            {data?.api_key || 'No API Key Generated'}
-          </code>
-          <div className="flex gap-2">
-            <button 
-              onClick={() => navigator.clipboard.writeText(data?.api_key)}
-              className="p-2 text-slate-400 hover:text-white transition-colors"
-              title="Copy"
-            >
-              <Copy className="w-4 h-4" />
-            </button>
-            <button 
-              onClick={handleRotateKey}
-              disabled={rotating}
-              className="p-2 text-slate-400 hover:text-red-400 transition-colors"
-              title="Rotate Key"
-            >
-              <RefreshCw className={`w-4 h-4 ${rotating ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
-        </div>
-        <p className="text-xs text-slate-500 mt-2">
-          Use this key in the <code>X-API-Key</code> header for all requests to the Headless API.
-        </p>
       </div>
 
       {/* Recent Transactions */}
@@ -158,6 +150,11 @@ export function PartnerDashboard() {
           </table>
         </div>
       </div>
+      </>
+      )}
+
+      {activeTab === 'quote' && <QuoteWizard />}
+      {activeTab === 'integration' && <IntegrationCenter apiKey={data?.api_key} onRotate={handleRotateKey} rotating={rotating} />}
     </div>
   );
 }

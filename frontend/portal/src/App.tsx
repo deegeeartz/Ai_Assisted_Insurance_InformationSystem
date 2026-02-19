@@ -4,7 +4,12 @@ import { Login } from './pages/Login';
 import { Layout } from './components/layout/Layout';
 import { PartnerDashboard } from './pages/PartnerDashboard';
 import { ComplianceDashboard } from './pages/ComplianceDashboard';
+import { InsurerDashboard } from './pages/InsurerDashboard';
 import React from 'react';
+import { IntegrationCenter } from './components/partner/IntegrationCenter';
+import { CommissionWallet } from './pages/CommissionWallet';
+import { SlaMonitor } from './pages/SlaMonitor';
+import { RulesInspector } from './pages/RulesInspector';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated } = useAuth();
@@ -25,12 +30,13 @@ function AppRoutes() {
         </ProtectedRoute>
       }>
         <Route index element={
-          user?.role === 'partner' ? <PartnerDashboard /> : <ComplianceDashboard />
+          user?.role === 'partner' ? <PartnerDashboard /> : 
+          user?.role === 'insurer' ? <InsurerDashboard /> : <ComplianceDashboard />
         } />
-        <Route path="api-keys" element={<div>API Keys Management (Coming Soon)</div>} />
-        <Route path="wallet" element={<div>Commission Wallet (Coming Soon)</div>} />
-        <Route path="sla" element={<div>SLA Monitor Detailed View</div>} />
-        <Route path="rules" element={<div>Rules Inspector</div>} />
+        <Route path="api-keys" element={<IntegrationCenter />} />
+        <Route path="wallet" element={<CommissionWallet />} />
+        <Route path="sla" element={<SlaMonitor />} />
+        <Route path="rules" element={<RulesInspector />} />
       </Route>
     </Routes>
   );

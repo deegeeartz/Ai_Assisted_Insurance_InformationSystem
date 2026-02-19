@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { CoverageSelector } from './CoverageSelector';
-import { calculatePremium, getProducts, PolicyState, CoverageBlock } from '../../services/api';
-import { Loader2, ArrowRight } from 'lucide-react';
+import { calculatePremium, getProducts, PolicyState, CoverageBlock, submitUnderwriting, processPayment } from '../../services/api';
+import { Loader2, ArrowRight, FileDown } from 'lucide-react';
 
 export function PolicyBuilder() {
   const [products, setProducts] = useState<CoverageBlock[]>([]);
@@ -14,10 +14,34 @@ export function PolicyBuilder() {
   });
 
   const [loading, setLoading] = useState(false);
+  const [processingStep, setProcessingStep] = useState<'idle' | 'underwriting' | 'paying' | 'success'>('idle');
+  const [policyResult, setPolicyResult] = useState<any>(null);
 
   // Fetch products on mount
   useEffect(() => {
     getProducts().then(setProducts);
+
+    // Listen for ChatBot product selection
+    const handleProductSelect = (e: any) => {
+        const productType = e.detail; // e.g., "Life", "Gadget"
+        console.log("ChatBot triggered selection:", productType);
+        
+        // Map simplified type string to coverage ID
+        // In a real app, this mapping would be more robust/dynamic
+        let coverageId = '';
+        if (productType.includes('Life')) coverageId = 'life_basic';
+        else if (productType.includes('Gadget')) coverageId = 'gadget_prot'; // Assuming ID exists or similar
+        else if (productType.includes('Auto')) coverageId = 'auto_basic';
+
+        if (coverageId) {
+            setState(s => ({ ...s, selectedCoverage: [coverageId] }));
+            // Optional: Scroll to builder
+            document.getElementById('policy-builder')?.scrollIntoView({ behavior: 'smooth' });
+        }
+    };
+
+    window.addEventListener('insurbridge:product-selected', handleProductSelect);
+    return () => window.removeEventListener('insurbridge:product-selected', handleProductSelect);
   }, []);
 
   // Recalculate premium on change
@@ -28,7 +52,6 @@ export function PolicyBuilder() {
       setState(s => ({ ...s, estimatedPremium: premium }));
       setLoading(false);
     };
-    // Debounce slightly or just run
     const timer = setTimeout(updatePremium, 500);
     return () => clearTimeout(timer);
   }, [state.selectedCoverage, state.age, state.gender, state.occupation]);
@@ -43,8 +66,80 @@ export function PolicyBuilder() {
     });
   };
 
+  const handlePayment = async () => {
+    setProcessingStep('underwriting');
+    try {
+        // 1. Get Underwriting Decision
+        const decision = await submitUnderwriting(state);
+        setPolicyResult(decision);
+
+        if (decision.status !== 'approved') {
+            alert(`Application Status: ${decision.status}\nReason: ${decision.reason}`);
+            setProcessingStep('idle');
+            return;
+        }
+
+        // 2. Process Real Payment
+        setProcessingStep('paying');
+        await processPayment(decision.premium_monthly, decision.policy_number || "PENDING");
+        
+        // 3. Success
+        setProcessingStep('success');
+
+    } catch (err: any) {
+        console.error(err);
+        alert("Payment Failed: " + err.message);
+        setProcessingStep('idle');
+    }
+  };
+
+  if (processingStep === 'success') {
+      const downloadUrl = `http://localhost:8000/api/v1/documents/key-facts/${policyResult?.policy_number}?format=pdf`;
+
+      return (
+          <div className="py-20 container mx-auto px-6 text-center">
+              <div className="bg-white/10 p-12 rounded-3xl backdrop-blur-md max-w-2xl mx-auto border border-white/20">
+                  <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-green-500/30">
+                      <ArrowRight className="w-10 h-10 text-white rotate-45" /> {/* Reuse Check icon logic if available */}
+                  </div>
+                  <h2 className="text-4xl font-bold text-white mb-4">Policy Issued!</h2>
+                  <p className="text-blue-100 text-xl mb-8">{policyResult?.plain_english_summary}</p>
+                  
+                  <div className="bg-white/5 p-6 rounded-xl text-left space-y-3 mb-8">
+                      <div className="flex justify-between text-white/80">
+                          <span>Policy Number</span>
+                          <span className="font-mono font-bold text-white">{policyResult?.policy_number}</span>
+                      </div>
+                      <div className="flex justify-between text-white/80">
+                          <span>Monthly Premium</span>
+                          <span className="font-bold text-white">₦{policyResult?.premium_monthly?.toLocaleString()}</span>
+                      </div>
+                  </div>
+
+                  <div className="flex flex-col gap-4">
+                    <a 
+                        href={downloadUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-full font-bold transition-all flex items-center justify-center gap-2"
+                    >
+                        <FileDown className="w-5 h-5" /> Download Key Facts Document
+                    </a>
+                    
+                    <button 
+                        onClick={() => window.location.reload()}
+                        className="btn bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-full font-bold transition-all"
+                    >
+                        Back to Home
+                    </button>
+                  </div>
+              </div>
+          </div>
+      )
+  }
+
   return (
-    <section className="py-20 bg-black/20" id="builder">
+    <section id="policy-builder" className="py-20 relative">
       <div className="container mx-auto px-6">
         <div className="flex flex-col lg:flex-row gap-12">
           
@@ -118,9 +213,14 @@ export function PolicyBuilder() {
                   </div>
                 </div>
 
-                <button className="btn btn-primary w-full py-4 text-lg shadow-xl shadow-blue-500/20">
-                  Proceed to Payment
-                  <ArrowRight className="w-5 h-5 ml-2" />
+                <button 
+                    onClick={handlePayment}
+                    disabled={processingStep !== 'idle' || state.estimatedPremium === 0}
+                    className="btn btn-primary w-full py-4 text-lg shadow-xl shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {processingStep === 'idle' && <>Proceed to Payment <ArrowRight className="w-5 h-5 ml-2" /></>}
+                  {processingStep === 'underwriting' && <><Loader2 className="w-5 h-5 animate-spin mr-2" /> AI Underwriting...</>}
+                  {processingStep === 'paying' && <><Loader2 className="w-5 h-5 animate-spin mr-2" /> Processing Payment...</>}
                 </button>
                 
                 <p className="text-xs text-center text-white/30">

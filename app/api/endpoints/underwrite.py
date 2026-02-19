@@ -1,10 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Security
+from fastapi.security import APIKeyHeader
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.schemas.underwrite import UnderwriteRequest, UnderwriteDecision
 from app.services.underwriting import route_to_product, execute_underwriting
 from app.services.protocol_adapter import create_soap_response
 from app.services.policy_number import generate_policy_number
+from app.services.auth import get_user_by_api_key
+from app.models.core import Policy
+import json
 
 import logging
 
@@ -13,11 +17,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+
+api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
+
 @router.post("/underwrite")
 async def underwrite(
     request: UnderwriteRequest,
     http_request: Request,
     db: AsyncSession = Depends(get_db),
+    api_key: str = Security(api_key_header),
 ):
     """
     Universal Polymorphic Underwriting Endpoint.
@@ -51,6 +59,37 @@ async def underwrite(
     if decision.status == "approved":
         decision.policy_number = generate_policy_number(manual.product_type)
 
+        # PARTNER API BINDING LOGIC
+        # If API Key is present, try to link to a Partner
+        partner_user = None
+        if api_key:
+            partner_user = await get_user_by_api_key(api_key, db)
+        
+        # Create Policy Record (Pending Payment)
+        # This enables the "Partner Remittance" flow where they call /payments/process next
+        new_policy = Policy(
+            policy_number=decision.policy_number,
+            product_type=manual.product_type,
+            status="pending_payment",  # Waiting for remittance
+            holder_name=request.holder_name or f"Anonymous Applicant ({request.age})",
+            holder_email=request.holder_email,
+            holder_age=request.age,
+            coverage_blocks=json.dumps([c.id for c in request.coverage_selection]), # Store IDs
+            premium_monthly=decision.premium_monthly,
+            premium_annual=decision.premium_annual,
+            # Hackathon Helper: Map Product Type to Tenant (Insurer)
+            # Since manuals don't have tenant_id in the current schema
+            tenant_id="admin@heirs-life.com" if "Life" in manual.product_type 
+                      else "admin@heirs-gadget.com" if "Gadget" in manual.product_type 
+                      else "admin@heirs-general.com",
+            partner_id=partner_user.id if partner_user else None, # Link to partner if authenticated
+            manual_id=manual.id
+        )
+        db.add(new_policy)
+        await db.commit()
+        await db.refresh(new_policy)
+
+
     # 4. Protocol Adaptation (JSON vs SOAP)
     accept_header = http_request.headers.get("accept", "application/json")
 
@@ -79,32 +118,61 @@ async def chat_underwrite(
         role=role,
     )
 
+    # Try to route to a specific product
     manual = await route_to_product(request, db)
+    
+    from app.core.llm import get_llm
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from app.services.underwriting import get_all_manuals
+
+    llm = get_llm()
+    role_tone = "friendly, simple, no jargon" if role == "consumer" else "professional, include technical details"
+
+    # CASE A: No specific product matched -> General Expert Mode
     if not manual:
+        all_manuals = await get_all_manuals(db)
+        product_summaries = "\n".join([f"- {m.product_type}: {m.compiled_rules[:200]}..." for m in all_manuals])
+        
+        system_prompt = f"""
+        You are InsurBridge AI, a general insurance expert.
+        The user is asking a question that doesn't map to a single specific product yet.
+        
+        Available Products:
+        {product_summaries}
+        
+        Your Goal: Help the user clarify their needs so we can route them to the right product manual.
+        Tone: {role_tone}.
+        
+        If they ask about a specific product type we have, tell them you can help with that.
+        """
+        
+        try:
+            response = llm.invoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=message)
+            ])
+            content = response.content
+        except Exception as e:
+            logger.error(f"General Chat failed: {e}")
+            content = "I can help with Life, Auto, and Gadget insurance. Could you be more specific about what you need?"
+
         return {
-            "message": "I'd love to help! Could you tell me a bit more about what you're looking for? "
-            "For example, are you interested in life insurance, auto coverage, or something else?",
-            "products_available": True,
+            "message": content,
+            "product_matched": None,
+            "role": role,
         }
 
+    # CASE B: Product Matched -> Specific Product Expert Mode
     if not manual.compiled_rules:
         return {
             "message": "I found the right product for you, but I'm still learning its details. "
-            "Please try again in a moment!",
+            "Please try again in a moment.",
         }
-
-    # For the chatbot, use the LLM to generate a conversational response
-    from app.core.llm import get_llm
-    from langchain_core.messages import HumanMessage, SystemMessage
-
-    llm = get_llm()
-
-    role_tone = "friendly, simple, no jargon" if role == "consumer" else "professional, include technical details"
 
     try:
         response = llm.invoke([
             SystemMessage(content=f"""
-            You are InsurBridge AI, a helpful insurance assistant.
+            You are InsurBridge AI, a specialist in {manual.product_type} Insurance.
             Tone: {role_tone}.
             
             You have access to these compiled insurance rules:
@@ -119,7 +187,6 @@ async def chat_underwrite(
         content = response.content
     except Exception as e:
         logger.error(f"LLM Chat failed: {e}. Falling back to manual text.")
-        # Fallback: Return a snippet of the manual
         snippet = manual.compiled_rules[:500] + "..." if manual.compiled_rules else "No details available."
         content = f"I'm having trouble connecting to my brain right now, but here is what the `{manual.product_type}` manual says:\n\n{snippet}"
 

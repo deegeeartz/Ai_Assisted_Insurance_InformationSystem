@@ -47,8 +47,12 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 async def login(login_data: LoginRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == login_data.email))
+    email = login_data.email.lower()
+    result = await db.execute(select(User).where(User.email == email))
     user = result.scalars().first()
+
+    if user:
+        is_valid = verify_password(login_data.password, user.hashed_password)
 
     if not user or not verify_password(login_data.password, user.hashed_password):
         raise HTTPException(

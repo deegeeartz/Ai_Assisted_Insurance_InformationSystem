@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchAuditLog } from '../services/api';
+import { fetchAuditLog, exportBatchCsv, registerWebhook } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { ShieldCheck, AlertTriangle, Search } from 'lucide-react';
 import clsx from 'clsx';
@@ -8,6 +8,8 @@ export function ComplianceDashboard() {
   const { token } = useAuth();
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
 
   useEffect(() => {
     const load = async () => {
@@ -23,12 +25,41 @@ export function ComplianceDashboard() {
     load();
   }, [token]);
 
+  const handleExport = async () => {
+    if (!token) return;
+    try {
+      const blob = await exportBatchCsv(token);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `compliance_export_${new Date().toISOString()}.csv`;
+      a.click();
+    } catch (e) {
+      alert("Export failed");
+    }
+  };
+
+  const handleSaveWebhook = async () => {
+    if (!token || !webhookUrl) return;
+    try {
+      await registerWebhook(token, { event_type: "policy.created", url: webhookUrl, secret: webhookSecret });
+      alert("Webhook registered successfully!");
+      setWebhookUrl("");
+      setWebhookSecret("");
+    } catch (e) {
+      alert("Failed to register webhook");
+    }
+  };
+
   return (
     <div className="space-y-6">
        <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-slate-900">Compliance & Audit</h1>
         <div className="flex gap-3">
-          <button className="btn bg-white border border-slate-200 text-slate-600 hover:bg-slate-50">
+          <button 
+            onClick={handleExport}
+            className="btn bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+          >
             Export CSV
           </button>
         </div>
@@ -131,6 +162,8 @@ export function ComplianceDashboard() {
             <label className="block text-sm font-medium text-slate-700 mb-1">Webhook Endpoint URL</label>
             <input 
               type="url" 
+              value={webhookUrl}
+              onChange={e => setWebhookUrl(e.target.value)}
               placeholder="https://api.naicom.gov.ng/v1/insurbridge-webhook"
               className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
             />
@@ -139,11 +172,16 @@ export function ComplianceDashboard() {
              <label className="block text-sm font-medium text-slate-700 mb-1">Secret Key (HMAC)</label>
              <input 
                type="password" 
+               value={webhookSecret}
+               onChange={e => setWebhookSecret(e.target.value)}
                placeholder="••••••••••••••••"
                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
              />
           </div>
-          <button className="btn btn-primary bg-slate-900 hover:bg-slate-800">
+          <button 
+            onClick={handleSaveWebhook}
+            className="btn btn-primary bg-slate-900 hover:bg-slate-800"
+          >
             Save Configuration
           </button>
         </div>

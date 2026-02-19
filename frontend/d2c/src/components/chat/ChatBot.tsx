@@ -9,6 +9,7 @@ interface Message {
   text: string;
   sender: 'user' | 'bot';
   timestamp: Date;
+  productLink?: string;
 }
 
 export function ChatBot() {
@@ -56,7 +57,8 @@ export function ChatBot() {
         id: (Date.now() + 1).toString(),
         text: response.message,
         sender: 'bot',
-        timestamp: new Date()
+        timestamp: new Date(),
+        productLink: response.product_matched
       };
       setMessages(prev => [...prev, botMsg]);
     } catch (err) {
@@ -130,13 +132,23 @@ export function ChatBot() {
                     {msg.sender === 'user' ? <User size={14} /> : <Bot size={14} />}
                   </div>
                   
-                  <div className={clsx(
-                    "p-3 rounded-2xl text-sm leading-relaxed",
-                    msg.sender === 'user' 
-                      ? "bg-purple-500/10 text-purple-100 rounded-tr-none border border-purple-500/20" 
-                      : "bg-blue-500/10 text-blue-100 rounded-tl-none border border-blue-500/20"
-                  )}>
-                    {msg.text}
+                  <div className="flex flex-col gap-2">
+                    <div className={clsx(
+                        "p-3 rounded-2xl text-sm leading-relaxed",
+                        msg.sender === 'user' 
+                        ? "bg-purple-500/10 text-purple-100 rounded-tr-none border border-purple-500/20" 
+                        : "bg-blue-500/10 text-blue-100 rounded-tl-none border border-blue-500/20"
+                    )}>
+                        {msg.text}
+                    </div>
+                    {msg.productLink && (
+                        <button 
+                            onClick={() => window.dispatchEvent(new CustomEvent('insurbridge:product-selected', { detail: msg.productLink }))}
+                            className="self-start text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-full transition-colors flex items-center gap-1"
+                        >
+                            View {msg.productLink} Options →
+                        </button>
+                    )}
                   </div>
                 </div>
               ))}

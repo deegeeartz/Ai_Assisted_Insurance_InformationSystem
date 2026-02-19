@@ -75,6 +75,16 @@ async def route_to_product(request: UnderwriteRequest, db: AsyncSession) -> Unde
     return None
 
 
+async def get_all_manuals(db: AsyncSession) -> list[UnderwritingManual]:
+    """Retrieve all active underwriting manuals."""
+    result = await db.execute(
+        select(UnderwritingManual)
+        .where(UnderwritingManual.is_active == True)
+        .order_by(UnderwritingManual.product_type)
+    )
+    return result.scalars().all()
+
+
 async def execute_underwriting(
     request: UnderwriteRequest,
     manual: UnderwritingManual,
@@ -110,12 +120,20 @@ async def execute_underwriting(
 
     system_msg = SystemMessage(content=f"""
     You are InsurBridge AI, a deterministic underwriting decision engine.
-    You MUST make decisions based ONLY on the compiled rules provided.
-    Do NOT invent rules. If the rules don't cover a scenario, set status to "referred".
+    You MUST make decisions based ONLY on the compiled JSON rules provided below.
+    
+    HOW TO EVALUATE:
+    1. Iterate through the "rules" array in the COMPILED RULES.
+    2. For each rule, evaluate the "condition" against the APPLICANT PROFILE.
+    3. If a condition is met, apply the "decision" and "reason".
+    4. If the decision is "declined", stop immediately.
+    5. If all eligibility rules pass, calculate the premium using "base_premium_rules" and "modifiers".
+    
+    If the rules don't cover a scenario or data is missing, set status to "referred".
     
     {role_instruction}
     
-    COMPILED RULES:
+    COMPILED RULES (JSON):
     {manual.compiled_rules or '{}'}
     
     Respond in this exact JSON format:

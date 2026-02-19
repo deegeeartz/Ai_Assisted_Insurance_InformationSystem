@@ -49,11 +49,17 @@ export function Hero() {
             transition={{ duration: 0.6, delay: 0.3 }}
             className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4"
           >
-            <button className="btn btn-primary text-lg px-8 py-4 w-full sm:w-auto group">
+            <button 
+              onClick={() => document.getElementById('policy-builder')?.scrollIntoView({ behavior: 'smooth' })}
+              className="btn btn-primary text-lg px-8 py-4 w-full sm:w-auto group"
+            >
               Design My Policy
               <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
             </button>
-            <button className="btn btn-secondary text-lg px-8 py-4 w-full sm:w-auto">
+            <button 
+              onClick={() => document.getElementById('policy-builder')?.scrollIntoView({ behavior: 'smooth' })}
+              className="btn btn-secondary text-lg px-8 py-4 w-full sm:w-auto"
+            >
               View Demo
             </button>
           </motion.div>

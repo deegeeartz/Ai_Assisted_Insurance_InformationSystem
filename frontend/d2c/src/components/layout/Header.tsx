@@ -18,10 +18,10 @@ export function Header() {
         </div>
 
         <nav className="hidden md:flex items-center gap-8">
-          <a href="#" className="text-sm font-medium text-white/70 hover:text-white transition-colors">Products</a>
-          <a href="#" className="text-sm font-medium text-white/70 hover:text-white transition-colors">Claims</a>
-          <a href="#" className="text-sm font-medium text-white/70 hover:text-white transition-colors">Partners</a>
-          <button className="btn btn-primary text-sm px-6 py-2.5">    
+          <a href="#policy-builder" onClick={(e) => { e.preventDefault(); document.getElementById('policy-builder')?.scrollIntoView({ behavior: 'smooth' }); }} className="text-sm font-medium text-white/70 hover:text-white transition-colors">Products</a>
+          <a href="#policy-builder" onClick={(e) => { e.preventDefault(); document.getElementById('policy-builder')?.scrollIntoView({ behavior: 'smooth' }); }} className="text-sm font-medium text-white/70 hover:text-white transition-colors">Claims</a>
+          <a href="http://localhost:3002" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-white/70 hover:text-white transition-colors">Partners</a>
+          <button onClick={() => document.getElementById('policy-builder')?.scrollIntoView({ behavior: 'smooth' })} className="btn btn-primary text-sm px-6 py-2.5">    
             Get Started <ChevronRight className="w-4 h-4 ml-1" />
           </button>
         </nav>

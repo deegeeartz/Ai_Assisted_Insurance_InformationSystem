@@ -5,6 +5,8 @@ interface User {
   email: string;
   role: 'partner' | 'compliance_officer' | 'admin' | 'insurer';
   full_name: string;
+  api_key?: string;
+  tenant_id?: string;
 }
 
 interface AuthContextType {

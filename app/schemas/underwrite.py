@@ -21,6 +21,8 @@ class CalculatorRequest(BaseModel):
 
 class UnderwriteRequest(BaseModel):
     # Applicant Info
+    holder_name: Optional[str] = None
+    holder_email: Optional[str] = None
     age: int
     gender: Optional[str] = None
     occupation: Optional[str] = None

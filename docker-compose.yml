@@ -12,8 +12,8 @@ services:
       - SQLALCHEMY_DATABASE_URI=postgresql+asyncpg://postgres:postgres@db:5432/insurbridge
       - POSTGRES_SERVER=db
       - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=hackathon_secret_key_change_me
-      - GOOGLE_API_KEY=AIzaSyCxXIshqurFws8v94YeZZ-T-FMtFeHL83c
+      - SECRET_KEY=${SECRET_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
     depends_on:
       db:
         condition: service_healthy

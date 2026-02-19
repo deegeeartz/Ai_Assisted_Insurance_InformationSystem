@@ -18,6 +18,17 @@ def generate_policy_number(
     Format: {PREFIX}-{PRODUCT}-{YYYY}-{SEQ}
     Example: IB-LIFE-2026-000001
     """
+    # Fetch prefix from Redis configuration or default to "IB"
+    config_key = f"config:policy:prefix:{product_type}"
+    start_time = datetime.now() 
+    # Try to get custom prefix, with a short timeout/fallback if Redis is slow (though strictly redis is fast)
+    try:
+        custom_prefix = redis_client.get(config_key)
+        if custom_prefix:
+            prefix = custom_prefix
+    except Exception:
+        pass # Fallback to default "IB"
+
     year = datetime.now().strftime("%Y")
     counter_key = f"policy_seq:{prefix}:{product_type}:{year}"
 

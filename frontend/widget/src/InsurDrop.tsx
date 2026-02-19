@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { MessageCircle, X, Send } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
+import { sendChatMessage } from './services/api';
 import './index.css';
 
 export function InsurDrop() {
@@ -11,19 +12,25 @@ export function InsurDrop() {
   ]);
   const [input, setInput] = useState("");
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim()) return;
+    
     const userMsg = input;
     setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
     setInput("");
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      const response = await sendChatMessage(userMsg);
       setMessages(prev => [...prev, { 
         role: 'bot', 
-        text: `I can certainly help you protect "${userMsg}". Based on our rules, I recommend our Comprehensive Auto Plan. It includes collision and theft coverage.` 
+        text: response.message 
       }]);
-    }, 1000);
+    } catch (error) {
+       setMessages(prev => [...prev, { 
+        role: 'bot', 
+        text: "I'm having trouble connecting right now." 
+      }]);
+    }
   };
 
   return (

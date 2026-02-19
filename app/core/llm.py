@@ -22,7 +22,7 @@ def get_llm():
 
         genai.configure(api_key=GOOGLE_API_KEY, transport="rest")
         _llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-pro",
+            model="gemini-flash-latest",
             temperature=0.1,
             google_api_key=GOOGLE_API_KEY,
             convert_system_message_to_human=True
