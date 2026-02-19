@@ -1,9 +1,6 @@
-import os
 import logging
 
 logger = logging.getLogger(__name__)
-
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 _llm = None
 
@@ -12,23 +9,24 @@ def get_llm():
     if _llm is not None:
         return _llm
 
-    if not GOOGLE_API_KEY:
+    from app.core.config import settings
+
+    api_key = settings.GOOGLE_API_KEY
+
+    if not api_key:
         logger.warning("GOOGLE_API_KEY not set. AI features will be unavailable.")
         raise RuntimeError("GOOGLE_API_KEY not configured. Set it in .env to enable AI features.")
 
     try:
-        import google.generativeai as genai
         from langchain_google_genai import ChatGoogleGenerativeAI
 
-        genai.configure(api_key=GOOGLE_API_KEY, transport="rest")
         _llm = ChatGoogleGenerativeAI(
-            model="gemini-flash-latest",
+            model="gemini-2.0-flash-lite",
             temperature=0.1,
-            google_api_key=GOOGLE_API_KEY,
-            convert_system_message_to_human=True
+            google_api_key=api_key,
         )
+        logger.info("LLM initialized: gemini-2.0-flash-lite")
         return _llm
     except Exception as e:
         logger.error(f"Failed to initialize LLM: {e}")
         raise
-

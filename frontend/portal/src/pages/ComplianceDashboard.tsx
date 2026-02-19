@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchAuditLog, exportBatchCsv, registerWebhook } from '../services/api';
+import { fetchAuditLog, exportBatchCsv, registerWebhook, fetchSlaBreaches, fetchSlaDashboard } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { ShieldCheck, AlertTriangle, Search } from 'lucide-react';
 import clsx from 'clsx';
@@ -10,14 +10,24 @@ export function ComplianceDashboard() {
   const [loading, setLoading] = useState(true);
   const [webhookUrl, setWebhookUrl] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
+  const [breaches, setBreaches] = useState<any[]>([]);
+  const [slaMetrics, setSlaMetrics] = useState<any>(null);
 
   useEffect(() => {
     const load = async () => {
       try {
         if (token) {
-          const data = await fetchAuditLog(token);
-          setLogs(data);
+          const [logsData, breachesData, slaData] = await Promise.all([
+             fetchAuditLog(token),
+             fetchSlaBreaches(token),
+             fetchSlaDashboard(token)
+          ]);
+          setLogs(logsData);
+          setBreaches(breachesData);
+          setSlaMetrics(slaData?.sla_metrics);
         }
+      } catch (e) {
+        console.error("Failed to load compliance data", e);
       } finally {
         setLoading(false);
       }
@@ -67,26 +77,30 @@ export function ComplianceDashboard() {
 
       {/* Status Overview */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="card p-6 border-l-4 border-green-500">
+        <div className={`card p-6 border-l-4 ${breaches.length > 0 ? 'border-red-500' : 'border-green-500'}`}>
           <div className="flex justify-between items-start">
             <div>
               <p className="text-sm font-medium text-slate-500">System Status</p>
-              <h3 className="text-xl font-bold text-slate-900 mt-1">Compliant</h3>
+              <h3 className="text-xl font-bold text-slate-900 mt-1">
+                {breaches.length > 0 ? 'At Risk' : 'Compliant'}
+              </h3>
             </div>
-            <ShieldCheck className="w-8 h-8 text-green-500" />
+            <ShieldCheck className={`w-8 h-8 ${breaches.length > 0 ? 'text-red-500' : 'text-green-500'}`} />
           </div>
-          <p className="text-sm text-slate-400 mt-4">Last audit: 2 mins ago</p>
+          <p className="text-sm text-slate-400 mt-4">Real-time monitoring active</p>
         </div>
 
-        <div className="card p-6 border-l-4 border-yellow-500">
+        <div className={`card p-6 border-l-4 ${breaches.length > 0 ? 'border-red-500' : 'border-green-500'}`}>
           <div className="flex justify-between items-start">
             <div>
               <p className="text-sm font-medium text-slate-500">SLA Breaches</p>
-              <h3 className="text-xl font-bold text-slate-900 mt-1">0 Active</h3>
+              <h3 className="text-xl font-bold text-slate-900 mt-1">{breaches.length} Active</h3>
             </div>
-            <AlertTriangle className="w-8 h-8 text-yellow-500" />
+            <AlertTriangle className={`w-8 h-8 ${breaches.length > 0 ? 'text-red-500' : 'text-green-500'}`} />
           </div>
-          <p className="text-sm text-slate-400 mt-4">Target: 99.9% uptime</p>
+          <p className="text-sm text-slate-400 mt-4">
+             Avg time: {slaMetrics?.avg_processing_time_ms ? (slaMetrics.avg_processing_time_ms / 1000).toFixed(2) + 's' : '0s'}
+          </p>
         </div>
       </div>
 

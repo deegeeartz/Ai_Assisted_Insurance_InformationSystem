@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { CoverageSelector } from './CoverageSelector';
-import { calculatePremium, getProducts, PolicyState, CoverageBlock, submitUnderwriting, processPayment } from '../../services/api';
+import { calculatePremium, getProducts, PolicyState, CoverageBlock, submitUnderwriting, payForPolicy } from '../../services/api';
 import { Loader2, ArrowRight, FileDown } from 'lucide-react';
 
 export function PolicyBuilder() {
@@ -81,7 +81,7 @@ export function PolicyBuilder() {
 
         // 2. Process Real Payment
         setProcessingStep('paying');
-        await processPayment(decision.premium_monthly, decision.policy_number || "PENDING");
+        await payForPolicy(decision.policy_number || "PENDING");
         
         // 3. Success
         setProcessingStep('success');

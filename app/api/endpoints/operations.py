@@ -63,7 +63,7 @@ async def sla_dashboard(
     current_user: User = Depends(get_current_user),
 ):
     """Get live SLA performance dashboard for the current tenant."""
-    if current_user.role not in ("insurer", "partner", "admin"):
+    if current_user.role not in ("insurer", "partner", "admin", "compliance_officer"):
         raise HTTPException(status_code=403, detail="Insufficient permissions")
 
     dashboard = await get_sla_dashboard(current_user.tenant_id or current_user.email, db)
@@ -133,8 +133,8 @@ async def register_webhook(
     current_user: User = Depends(get_current_user),
 ):
     """Register a webhook URL for event notifications."""
-    if current_user.role not in ("insurer", "admin"):
-        raise HTTPException(status_code=403, detail="Only insurers can register webhooks")
+    if current_user.role not in ("insurer", "admin", "compliance_officer"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
 
     config = WebhookConfig(
         tenant_id=current_user.tenant_id or current_user.email,
@@ -169,8 +169,8 @@ async def export_batch_csv(
     current_user: User = Depends(get_current_user),
 ):
     """Generate a batch CSV export of all policies for the current tenant (legacy fallback)."""
-    if current_user.role not in ("insurer", "admin"):
-        raise HTTPException(status_code=403, detail="Only insurers can export batch data")
+    if current_user.role not in ("insurer", "admin", "compliance_officer"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
 
     result = await db.execute(
         select(Policy).where(Policy.tenant_id == (current_user.tenant_id or current_user.email))

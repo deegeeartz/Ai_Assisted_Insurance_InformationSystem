@@ -11,6 +11,26 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+_product_router_cache = {}
+
+
+def normalize_content(content):
+    """Normalize LLM response content (handle string vs list)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        texts = []
+        for part in content:
+            if isinstance(part, dict) and 'text' in part:
+                texts.append(part['text'])
+            elif isinstance(part, str):
+                texts.append(part)
+            else:
+                texts.append(str(part))
+        return " ".join(texts)
+    return str(content)
+
+
 async def route_to_product(request: UnderwriteRequest, db: AsyncSession) -> UnderwritingManual | None:
     """
     Intelligent Product Router:
@@ -39,7 +59,12 @@ async def route_to_product(request: UnderwriteRequest, db: AsyncSession) -> Unde
         if not available_types:
             return None
 
-        llm = get_llm()
+        # Check cache
+        cache_key = request.natural_language_query.strip().lower()
+        if cache_key in _product_router_cache:
+            inferred_type = _product_router_cache[cache_key]
+        else:
+            llm = get_llm()
         routing_prompt = f"""
         A user said: "{request.natural_language_query}"
         
@@ -49,8 +74,8 @@ async def route_to_product(request: UnderwriteRequest, db: AsyncSession) -> Unde
         Reply with ONLY the product type name, nothing else.
         """
         try:
-            response = llm.invoke([HumanMessage(content=routing_prompt)])
-            inferred_type = response.content.strip()
+            response = await llm.ainvoke([HumanMessage(content=routing_prompt)])
+            inferred_type = normalize_content(response.content).strip()
         except Exception as e:
             logger.error(f"LLM Routing failed: {e}. Falling back to keyword match.")
             # Fallback: Check if any product type is in the query string
@@ -63,6 +88,9 @@ async def route_to_product(request: UnderwriteRequest, db: AsyncSession) -> Unde
             
             if not inferred_type:
                 return None
+            
+            # Update cache
+            _product_router_cache[cache_key] = inferred_type
 
         result = await db.execute(
             select(UnderwritingManual)
@@ -94,7 +122,16 @@ async def execute_underwriting(
     Takes the compiled JSON rules and the applicant data,
     and uses the LLM to make a deterministic decision.
     """
-    llm = get_llm()
+    try:
+        llm = get_llm()
+    except Exception as e:
+        logger.error(f"LLM unavailable: {e}")
+        return UnderwriteDecision(
+            status="referred",
+            reason="AI Service Unavailable",
+            plain_english_summary="Our AI underwriter is currently offline. Your application has been forwarded to a human for review.",
+            timestamp=datetime.now()
+        )
 
     # Build coverage context
     selected_coverage = [c.name for c in request.coverage_selection if c.enabled]
@@ -141,11 +178,11 @@ async def execute_underwriting(
         "status": "approved" | "declined" | "referred",
         "premium_monthly": <number or null>,
         "premium_annual": <number or null>,
-        "coverage_details": {{"block_name": "detail"}},
+        "coverage_details": {{ "block_name": "detail" }},
         "reason": "<specific rule reference>",
         "plain_english_summary": "<consumer-friendly 1-2 sentence summary>",
         "agent_notes": "<technical notes, only if role is agent, otherwise null>",
-        "sla_commitments": {{"metric": "value"}}
+        "sla_commitments": {{ "metric": "value" }}
     }}
     """)
 
@@ -164,8 +201,17 @@ async def execute_underwriting(
     Make your underwriting decision now.
     """)
 
-    response = llm.invoke([system_msg, human_msg])
-    raw = response.content
+    try:
+        response = await llm.ainvoke([system_msg, human_msg])
+        raw = normalize_content(response.content)
+    except Exception as e:
+        logger.error(f"LLM invocation failed: {e}")
+        return UnderwriteDecision(
+            status="referred",
+            reason="AI Technical Difficulty",
+            plain_english_summary="We're experiencing a temporary connection issue. Your application has been saved and forwarded to our team.",
+            timestamp=datetime.now()
+        )
 
     # Parse JSON from response
     try:
@@ -175,7 +221,8 @@ async def execute_underwriting(
             raw = raw.split("```")[1].split("```")[0]
 
         data = json.loads(raw.strip())
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, AttributeError, IndexError) as e:
+        logger.warning(f"Could not parse LLM response as JSON: {e}. Raw: {raw[:200]}")
         data = {
             "status": "referred",
             "reason": "System could not parse decision. Manual review required.",

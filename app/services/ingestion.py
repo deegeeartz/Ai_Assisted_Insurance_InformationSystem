@@ -11,6 +11,24 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def normalize_llm_content(content):
+    """Normalize LLM response content (may be list of dicts in newer langchain)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        texts = []
+        for part in content:
+            if isinstance(part, dict) and 'text' in part:
+                texts.append(part['text'])
+            elif isinstance(part, str):
+                texts.append(part)
+            else:
+                texts.append(str(part))
+        return " ".join(texts)
+    return str(content)
+
+
 async def process_manual_ingestion(manual_id: int, db: AsyncSession):
     try:
         # 1. Fetch Manual
@@ -46,7 +64,7 @@ async def process_manual_ingestion(manual_id: int, db: AsyncSession):
         Analyze the following underwriting manual content and extract a DETERMINISTIC RULESET in JSON format.
         
         MANUAL CONTENT:
-        {text[:30000]}  # Truncate to avoid context limit if needed
+        {text[:30000]}
         
         Output a JSON object with this structure:
         {{
@@ -68,7 +86,12 @@ async def process_manual_ingestion(manual_id: int, db: AsyncSession):
             "base_premium_rules": "explain how to calculate base premium",
             "modifiers": [
                 {{"factor": "smoker", "adjustment": "+50%"}}
-            ]
+            ],
+            "slas": {{
+                "quote_response_time": "30 seconds",
+                "claims_processing_time": "48 hours",
+                "policy_issuance_time": "24 hours"
+            }}
         }}
         
         Only output valid JSON. Do not include markdown formatting like ```json.
@@ -76,7 +99,8 @@ async def process_manual_ingestion(manual_id: int, db: AsyncSession):
         
         try:
             response = llm.invoke([HumanMessage(content=prompt)])
-            compiled_json = response.content.replace("```json", "").replace("```", "").strip()
+            raw = normalize_llm_content(response.content)
+            compiled_json = raw.replace("```json", "").replace("```", "").strip()
             
             # Validate JSON
             json.loads(compiled_json)
@@ -90,6 +114,18 @@ async def process_manual_ingestion(manual_id: int, db: AsyncSession):
         await db.commit()
         
         logger.info(f"Successfully compiled manual {manual_id}")
+
+        # 6. Extract SLA commitments
+        try:
+            from app.services.sla import extract_slas_from_manual
+            tenant_id = (
+                "admin@heirs-life.com" if "life" in manual.product_type.lower()
+                else "admin@heirs-gadget.com" if "gadget" in manual.product_type.lower()
+                else "admin@heirs-general.com"
+            )
+            await extract_slas_from_manual(manual_id, tenant_id, db)
+        except Exception as e:
+            logger.warning(f"SLA extraction skipped: {e}")
         
     except Exception as e:
         logger.error(f"Error processing manual {manual_id}: {e}")

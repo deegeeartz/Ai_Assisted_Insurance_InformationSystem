@@ -1,7 +1,14 @@
-import { Shield, ChevronRight, Menu } from 'lucide-react';
+import { Shield, ChevronRight, Menu, LogIn, FileText, LogOut } from 'lucide-react';
 import { useState } from 'react';
 
-export function Header() {
+interface HeaderProps {
+  onAuthClick?: () => void;
+  onPoliciesClick?: () => void;
+  isLoggedIn?: boolean;
+  onLogout?: () => void;
+}
+
+export function Header({ onAuthClick, onPoliciesClick, isLoggedIn, onLogout }: HeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
@@ -17,11 +24,27 @@ export function Header() {
           </span>
         </div>
 
-        <nav className="hidden md:flex items-center gap-8">
+        <nav className="hidden md:flex items-center gap-6">
           <a href="#policy-builder" onClick={(e) => { e.preventDefault(); document.getElementById('policy-builder')?.scrollIntoView({ behavior: 'smooth' }); }} className="text-sm font-medium text-white/70 hover:text-white transition-colors">Products</a>
-          <a href="#policy-builder" onClick={(e) => { e.preventDefault(); document.getElementById('policy-builder')?.scrollIntoView({ behavior: 'smooth' }); }} className="text-sm font-medium text-white/70 hover:text-white transition-colors">Claims</a>
           <a href="http://localhost:3002" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-white/70 hover:text-white transition-colors">Partners</a>
-          <button onClick={() => document.getElementById('policy-builder')?.scrollIntoView({ behavior: 'smooth' })} className="btn btn-primary text-sm px-6 py-2.5">    
+
+          {isLoggedIn && (
+            <button onClick={onPoliciesClick} className="text-sm font-medium text-white/70 hover:text-white transition-colors flex items-center gap-1">
+              <FileText size={14} /> My Policies
+            </button>
+          )}
+
+          {isLoggedIn ? (
+            <button onClick={onLogout} className="text-sm px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white hover:border-white/30 transition-all flex items-center gap-1.5">
+              <LogOut size={14} /> Sign Out
+            </button>
+          ) : (
+            <button onClick={onAuthClick} className="text-sm px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white hover:border-white/30 transition-all flex items-center gap-1.5">
+              <LogIn size={14} /> Sign In
+            </button>
+          )}
+
+          <button onClick={() => document.getElementById('policy-builder')?.scrollIntoView({ behavior: 'smooth' })} className="btn btn-primary text-sm px-6 py-2.5">
             Get Started <ChevronRight className="w-4 h-4 ml-1" />
           </button>
         </nav>

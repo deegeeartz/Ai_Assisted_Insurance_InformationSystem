@@ -64,6 +64,14 @@ export async function uploadManual(token: string, formData: FormData) {
     return res.json();
 }
 
+export async function fetchSlaBreaches(token: string) {
+  const res = await fetch(`${API_URL}/compliance/sla/breaches`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Failed to fetch SLA breaches');
+  return res.json();
+}
+
 export async function fetchSlaDashboard(token: string) {
   const res = await fetch(`${API_URL}/sla/dashboard`, {
     headers: { Authorization: `Bearer ${token}` }
@@ -116,4 +124,36 @@ export async function underwrite(token: string, data: any, apiKey?: string) {
   });
   if (!res.ok) throw new Error('Underwriting failed');
   return res.json();
+}
+
+export interface ChatAction {
+  action: string;
+  message: string;
+  data: Record<string, any>;
+  suggestions: string[];
+  product_matched?: string;
+  role: string;
+}
+
+export async function sendChatMessage(
+  message: string,
+  role: string = 'partner'
+): Promise<ChatAction> {
+  try {
+    const res = await fetch(
+      `${API_URL}/chat?message=${encodeURIComponent(message)}&role=${role}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' } }
+    );
+    if (!res.ok) throw new Error('Chat failed');
+    return await res.json();
+  } catch (err) {
+    console.error("Chat Error", err);
+    return {
+      action: 'text_reply',
+      message: "Sorry, I'm having trouble connecting. Please try again.",
+      data: {},
+      suggestions: ["Show my dashboard", "Generate API key"],
+      role: 'system',
+    };
+  }
 }

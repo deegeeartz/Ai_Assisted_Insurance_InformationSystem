@@ -55,7 +55,14 @@ class UnderwriteDecision(BaseModel):
     timestamp: datetime = datetime.now()
 
 
+
 class SOAPEnvelope(BaseModel):
     """Wrapper for SOAP/XML responses"""
     header: dict = {}
     body: dict = {}
+
+
+class ChatRequest(BaseModel):
+    message: str
+    role: Literal["consumer", "agent", "partner"] = "consumer"
+    history: List[dict] = []  # [{"role": "user/model", "content": "..."}]

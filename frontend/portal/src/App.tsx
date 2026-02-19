@@ -6,10 +6,11 @@ import { PartnerDashboard } from './pages/PartnerDashboard';
 import { ComplianceDashboard } from './pages/ComplianceDashboard';
 import { InsurerDashboard } from './pages/InsurerDashboard';
 import React from 'react';
-import { IntegrationCenter } from './components/partner/IntegrationCenter';
+
 import { CommissionWallet } from './pages/CommissionWallet';
 import { SlaMonitor } from './pages/SlaMonitor';
 import { RulesInspector } from './pages/RulesInspector';
+import { ApiKeys } from './pages/ApiKeys';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated } = useAuth();
@@ -33,7 +34,7 @@ function AppRoutes() {
           user?.role === 'partner' ? <PartnerDashboard /> : 
           user?.role === 'insurer' ? <InsurerDashboard /> : <ComplianceDashboard />
         } />
-        <Route path="api-keys" element={<IntegrationCenter />} />
+        <Route path="api-keys" element={<ApiKeys />} />
         <Route path="wallet" element={<CommissionWallet />} />
         <Route path="sla" element={<SlaMonitor />} />
         <Route path="rules" element={<RulesInspector />} />

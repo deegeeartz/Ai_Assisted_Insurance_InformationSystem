@@ -1,18 +1,21 @@
 const API_URL = 'http://localhost:8000/api/v1';
 
+// ============================================================
+//  INTERFACES
+// ============================================================
 export interface CoverageBlock {
   id: string;
   name: string;
   description: string;
   basePrice: number;
-  icon: string; // Lucide icon name
+  icon: string;
 }
 
 export interface PolicyState {
   age: number;
   gender: string;
   occupation: string;
-  selectedCoverage: string[]; // IDs
+  selectedCoverage: string[];
   estimatedPremium: number;
   naturalLanguageQuery?: string;
 }
@@ -26,14 +29,90 @@ export interface UnderwritingResponse {
   plain_english_summary: string;
 }
 
-// Fetch available products from backend
+export interface ChatAction {
+  action: string;
+  message: string;
+  data: Record<string, any>;
+  suggestions: string[];
+  product_matched?: string;
+  role: string;
+}
+
+export interface PolicyInfo {
+  policy_number: string;
+  product_type: string;
+  status: string;
+  holder_name: string;
+  premium_monthly: number | null;
+  premium_annual: number | null;
+}
+
+export interface AuthToken {
+  access_token: string;
+  token_type: string;
+  role: string;
+}
+
+// ============================================================
+//  AUTH
+// ============================================================
+let _token: string | null = localStorage.getItem('ib_token');
+
+function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (_token) headers['Authorization'] = `Bearer ${_token}`;
+  return headers;
+}
+
+export function getToken() { return _token; }
+export function isLoggedIn() { return !!_token; }
+
+export async function login(email: string, password: string): Promise<AuthToken> {
+  const res = await fetch(`${API_URL}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Login failed');
+  }
+  const data: AuthToken = await res.json();
+  _token = data.access_token;
+  localStorage.setItem('ib_token', data.access_token);
+  localStorage.setItem('ib_role', data.role);
+  return data;
+}
+
+export async function register(
+  email: string, password: string, fullName: string, role = 'consumer'
+): Promise<any> {
+  const res = await fetch(`${API_URL}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, full_name: fullName, role }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Registration failed');
+  }
+  return res.json();
+}
+
+export function logout() {
+  _token = null;
+  localStorage.removeItem('ib_token');
+  localStorage.removeItem('ib_role');
+}
+
+// ============================================================
+//  PRODUCTS & PREMIUM
+// ============================================================
 export async function getProducts(): Promise<CoverageBlock[]> {
   try {
     const res = await fetch(`${API_URL}/products`);
     if (!res.ok) throw new Error('Failed to fetch products');
     const data = await res.json();
-    
-    // Map backend snake_case to frontend camelCase
     return data.map((item: any) => ({
       id: item.id,
       name: item.name,
@@ -43,15 +122,11 @@ export async function getProducts(): Promise<CoverageBlock[]> {
     }));
   } catch (err) {
     console.error("API Error, falling back to mock", err);
-    // Fallback if backend is down (for demo resilience)
     return [
-      {
-        id: "life_basic",
-        name: "Life Protection (Offline)",
-        description: "Backend unreachable. Using cached data.",
-        basePrice: 5000,
-        icon: "Heart"
-      }
+      { id: "life_basic", name: "Life Protection", description: "Lump sum payout to beneficiaries.", basePrice: 5000, icon: "Heart" },
+      { id: "critical_illness", name: "Critical Illness", description: "Coverage for serious conditions.", basePrice: 3000, icon: "Activity" },
+      { id: "accidental_death", name: "Accidental Death", description: "Double payout for accidents.", basePrice: 1500, icon: "Zap" },
+      { id: "funeral_cover", name: "Funeral Expenses", description: "Immediate cash for funeral.", basePrice: 1000, icon: "Umbrella" },
     ];
   }
 }
@@ -68,25 +143,19 @@ export async function calculatePremium(state: PolicyState): Promise<number> {
         selected_coverage: state.selectedCoverage
       }),
     });
-
-    if (!res.ok) throw new Error('Failed to calculate premium');
+    if (!res.ok) throw new Error('Failed');
     const data = await res.json();
     return data.premium;
-  } catch (err) {
-    console.error("Calculation Error", err);
+  } catch {
     return 0;
   }
 }
 
+// ============================================================
+//  UNDERWRITING
+// ============================================================
 export async function submitUnderwriting(state: PolicyState): Promise<UnderwritingResponse> {
-  // Convert basic state to Full Underwrite Request
-  // In a real app, we'd map the coverage IDs to full objects if needed, 
-  // but for now we'll rely on natural language inference or simple ID passing if backend supports it.
-  // The backend route_to_product might need 'product_type' or inferred from 'natural_language_query'.
-  // We'll simulate a "Life" request if life is selected.
-  
   const productType = state.selectedCoverage.join(', ') || "General Insurance";
-  
   const res = await fetch(`${API_URL}/underwrite`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -95,77 +164,67 @@ export async function submitUnderwriting(state: PolicyState): Promise<Underwriti
       gender: state.gender,
       occupation: state.occupation,
       role: "consumer",
-      // We pass a constructed query to help the router
       natural_language_query: `I am a ${state.age} year old ${state.gender} ${state.occupation} looking for ${productType}.`,
-      coverage_selection: [] // Backend can infer or we can pass full objects if we had them here
-      // For this hackathon, let's rely on the NL query to pick the 'Life' manual primarily
+      coverage_selection: []
     }),
   });
-
   if (!res.ok) {
-     const error = await res.json();
-     throw new Error(error.detail || 'Underwriting failed');
+    const error = await res.json();
+    throw new Error(error.detail || 'Underwriting failed');
   }
   return res.json();
 }
 
-export async function processPayment(amount: number, policyNumber: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${API_URL}/payments/process`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        policy_number: policyNumber,
-        amount: amount,
-        currency: "NGN",
-        gateway: "paystack" // Hardcoded for demo
-      }),
-    });
-
-    if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'Payment failed');
-    }
-    return true;
-  } catch (e) {
-    console.error(e);
-    throw e;
+// ============================================================
+//  MOCK PAYMENT
+// ============================================================
+export async function payForPolicy(policyNumber: string): Promise<any> {
+  const res = await fetch(`${API_URL}/pay?policy_number=${encodeURIComponent(policyNumber)}`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Payment failed');
   }
+  return res.json();
 }
 
-export interface ChatResponse {
-  message: string;
-  product_matched?: string;
-  role: string;
+// ============================================================
+//  POLICIES
+// ============================================================
+export async function getMyPolicies(email?: string): Promise<PolicyInfo[]> {
+  // Use the agentic chat to fetch policies, or direct DB query endpoint
+  // For now, we send a chat action
+  const res = await sendChatMessage(`Show my policies${email ? ` for ${email}` : ''}`);
+  return res.data?.policies || [];
 }
 
-export async function sendChatMessage(message: string, role: 'consumer' | 'agent' = 'consumer'): Promise<ChatResponse> {
+// ============================================================
+//  AGENTIC CHAT
+// ============================================================
+export async function sendChatMessage(
+  message: string,
+  role: 'consumer' | 'agent' | 'partner' = 'consumer',
+  history: Array<{ role: 'user' | 'model'; content: string }> = []
+): Promise<ChatAction> {
   try {
-    // Note: Endpoint might be /api/v1/chat or /api/v1/underwrite/chat depending on main.py prefix
-    // Trying /api/v1/chat first based on @router.post("/chat") without extra prefix if included at root
-    // But main.py likely prefixes it. Let's try /api/v1/chat
-    const res = await fetch(`${API_URL}/chat?message=${encodeURIComponent(message)}&role=${role}`, {
+    const res = await fetch(`${API_URL}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, role, history }),
     });
-    
-    // If 404, try /underwrite/chat
-    if (res.status === 404) {
-       const res2 = await fetch(`${API_URL}/underwrite/chat?message=${encodeURIComponent(message)}&role=${role}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!res2.ok) throw new Error('Chat API failed');
-      return await res2.json();
-    }
 
     if (!res.ok) throw new Error('Chat API failed');
     return await res.json();
   } catch (err) {
     console.error("Chat Error", err);
     return {
-      message: "Sorry, I'm having trouble connecting to the brain. Please try again.",
-      role: 'system'
+      action: 'text_reply',
+      message: "Sorry, I'm having trouble connecting. Please try again.",
+      data: {},
+      suggestions: ["Show products", "Get a quote"],
+      role: 'system',
     };
   }
 }

@@ -1,5 +1,11 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from app.core.config import settings
+import logging
+import traceback
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -7,6 +13,15 @@ app = FastAPI(
     description="InsurBridge AI - Liquid Logic Insurance Infrastructure",
     version="0.1.0",
 )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    tb = traceback.format_exception(type(exc), exc, exc.__traceback__)
+    logger.error(f"Unhandled error on {request.method} {request.url}:\n{''.join(tb)}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "traceback": ''.join(tb)},
+    )
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -53,6 +68,7 @@ app.include_router(compliance.router, prefix="/api/v1/compliance", tags=["compli
 from app.db.base import Base
 from app.db.session import engine, AsyncSessionLocal
 from app.models import core, manual  # Import all models so they register with Base
+from app.models.chat_log import ChatLog
 from app.db.init_db import init_db
 
 @app.on_event("startup")

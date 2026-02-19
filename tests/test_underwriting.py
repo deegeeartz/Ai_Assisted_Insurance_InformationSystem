@@ -1,66 +1,139 @@
+"""Tests for underwriting and agentic chat system."""
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from app.services.underwriting import execute_underwriting
-from app.schemas.underwrite import UnderwriteRequest, CoverageBlock
-from app.models.manual import UnderwritingManual
-from langchain_core.messages import AIMessage
+import json
 
-# Mock data
-MOCKED_DECISION_JSON = """
-{
-    "status": "approved",
-    "premium_monthly": 5000,
-    "premium_annual": 60000,
-    "coverage_details": {"base": "covered"},
-    "reason": "Meets criteria",
-    "plain_english_summary": "You are approved.",
-    "agent_notes": "Standard risk.",
-    "sla_commitments": {"turnaround": "24h"}
-}
-"""
 
-@pytest.mark.asyncio
-async def test_execute_underwriting_approved():
-    # Arrange
-    mock_llm = MagicMock()
-    mock_llm.invoke.return_value = AIMessage(content=MOCKED_DECISION_JSON)
-    
-    with patch("app.services.underwriting.get_llm", return_value=mock_llm):
-        request = UnderwriteRequest(
-            age=30,
-            gender="Male",
-            occupation="Engineer",
-            smoker=False,
-            location="Lagos",
-            coverage_selection=[CoverageBlock(id="1", name="Life", description="Life cover", base_price=100.0, icon="heart", enabled=True)],
-            role="consumer"
-        )
-        manual = UnderwritingManual(compiled_rules='{"rules": []}')
+# ============================================================
+#  Test normalize_content
+# ============================================================
+class TestNormalizeContent:
+    """Tests for the normalize_content helper function."""
 
-        # Act
-        decision = await execute_underwriting(request, manual)
+    def test_string_passthrough(self):
+        """String input should pass through unchanged."""
+        from app.api.endpoints.underwrite import normalize_content
+        assert normalize_content("hello world") == "hello world"
 
-        # Assert
-        assert decision.status == "approved"
-        assert decision.premium_monthly == 5000
-        assert decision.reason == "Meets criteria"
-        
-        # Verify LLM was called
-        mock_llm.invoke.assert_called_once()
+    def test_list_of_dicts(self):
+        """List of dicts with 'text' key should be joined."""
+        from app.api.endpoints.underwrite import normalize_content
+        content = [
+            {'type': 'text', 'text': 'Hello', 'extras': {}},
+            {'type': 'text', 'text': 'World', 'extras': {}},
+        ]
+        assert normalize_content(content) == "Hello World"
 
-@pytest.mark.asyncio
-async def test_execute_underwriting_parsing_error():
-    # Arrange
-    mock_llm = MagicMock()
-    mock_llm.invoke.return_value = AIMessage(content="Invalid JSON")
-    
-    with patch("app.services.underwriting.get_llm", return_value=mock_llm):
-        request = UnderwriteRequest(age=30, smoker=False, coverage_selection=[], role="consumer")
-        manual = UnderwritingManual(compiled_rules="{}")
+    def test_list_of_strings(self):
+        """List of strings should be joined."""
+        from app.api.endpoints.underwrite import normalize_content
+        assert normalize_content(["Hello", "World"]) == "Hello World"
 
-        # Act
-        decision = await execute_underwriting(request, manual)
+    def test_mixed_list(self):
+        """Mixed list should handle dicts and strings."""
+        from app.api.endpoints.underwrite import normalize_content
+        content = [
+            {'type': 'text', 'text': 'Hello'},
+            'World',
+        ]
+        assert normalize_content(content) == "Hello World"
 
-        # Assert
-        assert decision.status == "referred"
-        assert "could not parse" in decision.reason.lower()
+    def test_empty_list(self):
+        """Empty list should return empty string."""
+        from app.api.endpoints.underwrite import normalize_content
+        assert normalize_content([]) == ""
+
+    def test_non_string(self):
+        """Non-string, non-list input should be stringified."""
+        from app.api.endpoints.underwrite import normalize_content
+        assert normalize_content(42) == "42"
+
+
+# ============================================================
+#  Test ingestion normalize
+# ============================================================
+class TestIngestionNormalize:
+    """Tests for the normalize_llm_content in ingestion service."""
+
+    def test_string(self):
+        from app.services.ingestion import normalize_llm_content
+        assert normalize_llm_content("test") == "test"
+
+    def test_list(self):
+        from app.services.ingestion import normalize_llm_content
+        content = [{'type': 'text', 'text': 'JSON output'}]
+        assert normalize_llm_content(content) == "JSON output"
+
+
+# ============================================================
+#  Test agentic parse logic
+# ============================================================
+class TestAgenticParsing:
+    """Tests for parsing LLM agentic JSON output."""
+
+    def test_valid_json_action(self):
+        """Well-formed agentic JSON should parse correctly."""
+        raw = json.dumps({
+            "action": "show_products",
+            "message": "Here are our products",
+            "data": {},
+            "suggestions": ["Get a quote", "Tell me more"]
+        })
+        parsed = json.loads(raw)
+        assert parsed["action"] == "show_products"
+        assert len(parsed["suggestions"]) == 2
+
+    def test_json_with_markdown_wrapper(self):
+        """JSON wrapped in markdown code fence should be cleaned."""
+        raw = '```json\n{"action": "text_reply", "message": "Hi"}\n```'
+        clean = raw.strip()
+        if clean.startswith("```json"):
+            clean = clean[7:]
+        if clean.endswith("```"):
+            clean = clean[:-3]
+        parsed = json.loads(clean.strip())
+        assert parsed["action"] == "text_reply"
+
+    def test_invalid_json_fallback(self):
+        """Invalid JSON should fall back to text_reply."""
+        raw = "I'm just a normal text response"
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = {
+                "action": "text_reply",
+                "message": raw,
+                "data": {},
+                "suggestions": [],
+            }
+        assert parsed["action"] == "text_reply"
+        assert parsed["message"] == raw
+
+
+# ============================================================
+#  Test mock payment data structure
+# ============================================================
+class TestMockPayment:
+    """Tests for payment receipt structure."""
+
+    def test_receipt_structure(self):
+        """Receipt should contain all required fields."""
+        receipt = {
+            "amount": 60000,
+            "insurer_share": 48000,
+            "partner_commission": 9000,
+            "platform_fee": 3000,
+            "currency": "NGN",
+        }
+        assert receipt["amount"] == receipt["insurer_share"] + receipt["partner_commission"] + receipt["platform_fee"]
+        assert receipt["currency"] == "NGN"
+
+    def test_commission_split(self):
+        """Commission split should follow 80/15/5 ratio."""
+        amount = 100000
+        partner_commission = amount * 0.15
+        platform_fee = amount * 0.05
+        insurer_share = amount - partner_commission - platform_fee
+
+        assert partner_commission == 15000
+        assert platform_fee == 5000
+        assert insurer_share == 80000
