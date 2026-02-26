@@ -1,4 +1,4 @@
-import { LayoutDashboard, Key, Wallet, FileText, Activity, LogOut, ShieldAlert } from 'lucide-react';
+import { LayoutDashboard, Key, Wallet, FileText, Activity, LogOut, ShieldAlert, Globe } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import clsx from 'clsx';
@@ -9,6 +9,7 @@ export function Sidebar() {
   const partnerLinks = [
     { icon: LayoutDashboard, label: 'Overview', to: '/' },
     { icon: Key, label: 'API Keys', to: '/api-keys' },
+    { icon: FileText, label: 'Batch Issuance', to: '/batch' },
     { icon: Wallet, label: 'Wallet', to: '/wallet' },
   ];
 
@@ -18,7 +19,11 @@ export function Sidebar() {
     { icon: FileText, label: 'Rules Inspector', to: '/rules' },
   ];
 
-  const links = user?.role === 'partner' ? partnerLinks : complianceLinks;
+  const adminLinks = [
+    { icon: Globe, label: 'Global Command', to: '/' },
+  ];
+
+  const links = user?.role === 'admin' ? adminLinks : user?.role === 'partner' ? partnerLinks : complianceLinks;
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-slate-900 text-white flex flex-col">
@@ -27,7 +32,7 @@ export function Sidebar() {
           InsurBridge
         </h1>
         <p className="text-xs text-slate-500 mt-1 uppercase tracking-wider">
-          {user?.role === 'partner' ? 'Partner Portal' : 'Compliance'}
+          {user?.role === 'admin' ? 'Superadmin Platform' : user?.role === 'partner' ? 'Partner Portal' : 'Compliance Hub'}
         </p>
       </div>
 

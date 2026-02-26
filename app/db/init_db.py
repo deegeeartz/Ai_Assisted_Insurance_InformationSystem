@@ -44,6 +44,13 @@ async def init_db(db: AsyncSession):
             "company_name": "Heirs Holdings",
             "role": "compliance_officer",
             "password": "password"
+        },
+        {
+            "email": "superadmin@heirsholdings.com",
+            "full_name": "Platform Superadmin",
+            "company_name": "Heirs Insurance Group",
+            "role": "admin",
+            "password": "superpassword"
         }
     ]
 
@@ -63,5 +70,16 @@ async def init_db(db: AsyncSession):
                 api_key=generate_api_key() if org["role"] in ["insurer", "partner"] else None
             )
             db.add(new_user)
-    
+            
+    # Seed platform configs
+    from app.models.core import PlatformConfig
+    configs = [
+        {"key": "kill_switch", "value": "false", "description": "Global emergency API toggle"},
+        {"key": "global_commission_rate", "value": "0.10", "description": "Default partner revenue share (10%)"}
+    ]
+    for conf in configs:
+        res = await db.execute(select(PlatformConfig).where(PlatformConfig.key == conf["key"]))
+        if not res.scalars().first():
+            db.add(PlatformConfig(**conf))
+
     await db.commit()

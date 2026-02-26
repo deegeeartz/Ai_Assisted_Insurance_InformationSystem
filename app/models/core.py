@@ -107,3 +107,12 @@ class WebhookConfig(Base):
     secret = Column(String, nullable=True)  # For HMAC signing
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class PlatformConfig(Base):
+    __tablename__ = "platform_configs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String, unique=True, index=True)
+    value = Column(String)
+    description = Column(String, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

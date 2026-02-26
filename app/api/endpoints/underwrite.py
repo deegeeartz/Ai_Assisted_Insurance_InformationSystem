@@ -58,6 +58,13 @@ async def underwrite(
     """
     Universal Polymorphic Underwriting Endpoint.
     """
+    from app.models.core import PlatformConfig
+    k_res = await db.execute(select(PlatformConfig).where(PlatformConfig.key == "kill_switch"))
+    kill_cfg = k_res.scalars().first()
+    if kill_cfg and kill_cfg.value.lower() == "true":
+        raise HTTPException(status_code=503, detail="Platform emergency halt. Quoting temporarily disabled by Superadmin.")
+
+
     manual = await route_to_product(request, db)
     if not manual:
         raise HTTPException(
@@ -102,9 +109,97 @@ async def underwrite(
 
     accept_header = http_request.headers.get("accept", "application/json")
     if "soap+xml" in accept_header or "text/xml" in accept_header:
+        # Standard endpoint can return SOAP if requested
         return create_soap_response(decision.model_dump(mode="json"))
 
     return decision
+
+
+# ============================================================
+#  SOAP UNDERWRITING ENDPOINT
+# ============================================================
+@router.post("/soap/underwrite")
+async def soap_underwrite(
+    http_request: Request,
+    db: AsyncSession = Depends(get_db),
+    api_key: str = Security(api_key_header),
+):
+    """
+    Dedicated SOAP endpoint that explicitly accepts XML request bodies 
+    for legacy bank and enterprise partners.
+    """
+    from app.models.core import PlatformConfig
+    k_res = await db.execute(select(PlatformConfig).where(PlatformConfig.key == "kill_switch"))
+    kill_cfg = k_res.scalars().first()
+    if kill_cfg and kill_cfg.value.lower() == "true":
+        raise HTTPException(status_code=503, detail="Platform emergency halt. Quoting temporarily disabled by Superadmin.")
+
+
+    from app.services.protocol_adapter import soap_xml_to_dict, create_soap_response
+    
+    xml_str = await http_request.body()
+    try:
+        data = soap_xml_to_dict(xml_str.decode('utf-8'))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid SOAP XML: {e}")
+
+    # Extract dynamic root (e.g., <UnderwriteRequest>)
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty SOAP Body")
+        
+    root_key = list(data.keys())[0]
+    payload = data[root_key]
+
+    # Normalize single-element lists from XML parsing
+    cov = payload.get("coverage_selection", [])
+    if isinstance(cov, dict):
+        # xmltodict parses single elements as dict rather than list of dicts
+        cov_item = cov.get("CoverageSelection")
+        if isinstance(cov_item, list):
+            payload["coverage_selection"] = cov_item
+        elif isinstance(cov_item, dict):
+            payload["coverage_selection"] = [cov_item]
+        else:
+            payload["coverage_selection"] = []
+
+    try:
+        # Fallbacks for types since XML values arrive as strings
+        payload["age"] = int(payload.get("age", 30))
+        request_obj = UnderwriteRequest(**payload)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"XML Schema Validation Error: {e}")
+
+    # Run core underwriting logic
+    manual = await route_to_product(request_obj, db)
+    if not manual:
+        return create_soap_response({"status": "error", "message": "No matching product found."})
+        
+    decision = await execute_underwriting(request_obj, manual)
+
+    if decision.status == "approved":
+        decision.policy_number = generate_policy_number(manual.product_type)
+        partner_user = None
+        if api_key:
+            partner_user = await get_user_by_api_key(api_key, db)
+
+        new_policy = Policy(
+            policy_number=decision.policy_number,
+            product_type=manual.product_type,
+            status="pending_payment",
+            holder_name=request_obj.holder_name or f"Anonymous Applicant ({request_obj.age})",
+            holder_email=request_obj.holder_email,
+            holder_age=request_obj.age,
+            coverage_blocks=json.dumps([c.id for c in request_obj.coverage_selection]),
+            premium_monthly=decision.premium_monthly,
+            premium_annual=decision.premium_annual,
+            tenant_id="admin@heirs-life.com",
+            partner_id=partner_user.id if partner_user else None,
+            manual_id=manual.id
+        )
+        db.add(new_policy)
+        await db.commit()
+
+    return create_soap_response(decision.model_dump(mode="json"))
 
 
 # ============================================================
@@ -135,8 +230,14 @@ async def mock_pay(
     ref = f"PAY-SIM-{uuid.uuid4().hex[:8].upper()}"
     amount = policy.premium_annual or (policy.premium_monthly or 0) * 12
 
+    # Fetch global commission config
+    from app.models.core import PlatformConfig
+    c_res = await db.execute(select(PlatformConfig).where(PlatformConfig.key == "global_commission_rate"))
+    c_cfg = c_res.scalars().first()
+    partner_rate = float(c_cfg.value) if c_cfg else 0.10
+    
     # Commission splitting
-    partner_commission = amount * 0.15 if policy.partner_id else 0
+    partner_commission = amount * partner_rate if policy.partner_id else 0
     platform_fee = amount * 0.05
     insurer_share = amount - partner_commission - platform_fee
 
@@ -188,9 +289,28 @@ You can perform these actions for CONSUMERS:
 PARTNER_ACTIONS = """
 You can perform these actions for PARTNERS:
 - show_dashboard: Show partner metrics (total policies sold, commission earned)
-- rotate_api_key: Generate a new API key for the partner
+- rotate_api_key: Generate a new API key for the partner and display it
 - show_widget_code: Show the embeddable widget code
+- show_products: Show available insurance products
+- start_quote: Start an insurance quote for a client (needs age, product_type). Ask the user for missing info.
+- show_policies: Show the partner's sold policies or a specific client's policies (needs holder_email)
+- initiate_payment: Initiate payment for a policy (needs policy_number)
+- show_commissions: Show the partner's total earned commissions and wallet balance.
+- withdraw_commission: Initiate a withdrawal of commission funds to their bank account.
 - text_reply: Just answer a question conversationally
+"""
+
+ADMIN_ACTIONS = """
+You can perform these actions for SUPERADMINS (God-Mode):
+- show_dashboard: Show the global platform dashboard (Total GWP, Total active policies across all tenants)
+- show_tenants: List all active insurers on the marketplace
+- text_reply: Answer questions conversationally, acknowledging your ultimate platform power
+"""
+
+INSURER_ACTIONS = """
+You can perform these actions for INSURERS:
+- show_dashboard: Show metrics specific only to this insurer
+- text_reply: Answer questions conversationally
 """
 
 AGENTIC_SYSTEM_PROMPT = """
@@ -224,13 +344,13 @@ IMPORTANT: Output ONLY the JSON object. No other text before or after.
 """
 
 
-async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSession) -> dict:
+async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSession, user: User = None) -> dict:
     """Execute an action detected by the LLM and return enriched data."""
 
     if action == "show_products":
         return {
             "products": [
-                {"id": p.id, "name": p.name, "description": p.description, "base_price": p.base_price, "icon": p.icon}
+                {"id": p.id, "name": p.name, "description": p.description, "base_price": p.base_price, "icon": p.icon, "insurer_name": p.insurer_name, "category": p.category}
                 for p in AVAILABLE_PRODUCTS
             ]
         }
@@ -289,12 +409,16 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
         }
 
     elif action == "show_policies":
+        if user and user.role == "partner":
+            query = select(Policy).where(Policy.partner_id == user.id)
+        else:
+            query = select(Policy)
+            
         email = data.get("holder_email")
         if email:
-            result = await db.execute(select(Policy).where(Policy.holder_email == email))
-        else:
-            result = await db.execute(select(Policy).order_by(Policy.bound_at.desc()).limit(10))
-        
+            query = query.where(Policy.holder_email == email)
+            
+        result = await db.execute(query.order_by(Policy.bound_at.desc()).limit(15))
         policies = result.scalars().all()
         return {
             "policies": [
@@ -330,7 +454,30 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
         }
 
     elif action == "show_dashboard":
-        result = await db.execute(select(Policy).limit(50))
+        if not user:
+            return {"error": "Authentication required for dashboard."}
+            
+        if user.role == "admin":
+            from sqlalchemy import func
+            gwp_query = await db.execute(select(func.sum(Policy.premium_annual)).where(Policy.status == "active"))
+            policies_query = await db.execute(select(func.count(Policy.id)).where(Policy.status == "active"))
+            return {
+                "dashboard": {
+                    "total_policies": policies_query.scalar() or 0,
+                    "total_premium_value": gwp_query.scalar() or 0.0,
+                    "active_policies": policies_query.scalar() or 0,
+                    "currency": "NGN",
+                    "mode": "Global God-Mode"
+                }
+            }
+            
+        query = select(Policy)
+        if user.role == "partner":
+            query = query.where(Policy.partner_id == user.id)
+        elif user.role == "insurer":
+            query = query.where(Policy.tenant_id == user.tenant_id)
+            
+        result = await db.execute(query.limit(200))
         policies = result.scalars().all()
         total = len(policies)
         active = sum(1 for p in policies if p.status == "active")
@@ -343,14 +490,50 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
                 "active_policies": active,
                 "pending_policies": pending,
                 "total_premium_value": total_premium,
+                "currency": "NGN",
+                "mode": user.role.capitalize()
+            }
+        }
+
+    elif action == "show_commissions":
+        if not user or user.role != "partner":
+            return {"error": "Only partners can view commissions."}
+            
+        result = await db.execute(
+            select(Payment).join(Policy).where(Policy.partner_id == user.id, Payment.status == "success")
+        )
+        payments = result.scalars().all()
+        total_earned = sum(p.partner_commission for p in payments)
+        return {
+            "commissions": {
+                "total_earned": total_earned,
+                "recent_payouts": 0,
                 "currency": "NGN"
             }
         }
 
+    elif action == "withdraw_commission":
+        if not user or user.role != "partner":
+            return {"error": "Only partners can withdraw commissions."}
+        amount = data.get("amount", "all available funds")
+        return {
+            "withdrawal": {
+                "status": "success",
+                "message": f"Your withdrawal request for {amount} has been queued! Funds will arrive in your linked GTBank account shortly."
+            }
+        }
+
     elif action == "rotate_api_key":
+        if not user:
+            return {"error": "Authentication required to rotate API key."}
+            
+        from app.services.auth import generate_api_key
+        new_key = generate_api_key()
+        user.api_key = new_key
+        await db.commit()
         return {
             "api_key_action": "rotate",
-            "message": "To rotate your API key, use the Integration Center in the portal sidebar, or call POST /api/v1/partners/api-key/rotate with your auth token."
+            "message": f"Success! Your new integration API key is: \n\n`{new_key}`\n\nPlease copy this now, as it will not be shown again."
         }
 
     elif action == "show_widget_code":
@@ -368,6 +551,7 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
 @router.post("/chat")
 async def agentic_chat(
     request: ChatRequest,
+    http_req: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -378,6 +562,21 @@ async def agentic_chat(
     from app.core.llm import get_llm
     from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
     from app.services.underwriting import get_all_manuals, route_to_product
+    from jose import jwt
+    from app.services.auth import SECRET_KEY, ALGORITHM
+
+    # Extract user if authenticated
+    user = None
+    auth_header = http_req.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        try:
+            token = auth_header.split(" ")[1]
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            email = payload.get("sub")
+            if email:
+                user = (await db.execute(select(User).where(User.email == email))).scalars().first()
+        except Exception as e:
+            logger.warning(f"Error decoding JWT in chat: {e}")
 
     llm = get_llm()
     
@@ -389,9 +588,24 @@ async def agentic_chat(
         status="pending"
     )
 
-    role = request.role
-    role_actions = CONSUMER_ACTIONS if role in ("consumer", "agent") else PARTNER_ACTIONS
-    tone = "friendly, simple, no jargon" if role == "consumer" else "professional, concise"
+    # Determine real role from token if authenticated, otherwise use requested fallback
+    if user:
+        role = user.role.value if hasattr(user.role, 'value') else str(user.role)
+    else:
+        role = request.role
+
+    if role == "admin":
+        role_actions = ADMIN_ACTIONS
+        tone = "authoritative, technical, god-mode"
+    elif role == "insurer":
+        role_actions = INSURER_ACTIONS
+        tone = "professional, analytical"
+    elif role in ("partner", "agent"):
+        role_actions = PARTNER_ACTIONS
+        tone = "professional, concise"
+    else:
+        role_actions = CONSUMER_ACTIONS
+        tone = "friendly, simple, no jargon"
 
     # RAG / Context Injection
     # Try to determine if the user is asking about a specific product type
@@ -474,7 +688,7 @@ async def agentic_chat(
     enriched_data = {}
     if action != "text_reply":
         try:
-            enriched_data = await execute_chat_action(action, action_data, role, db)
+            enriched_data = await execute_chat_action(action, action_data, role, db, user)
         except Exception as e:
             logger.error(f"Action execution failed: {e}")
             enriched_data = {"error": str(e)}
@@ -509,40 +723,141 @@ async def agentic_chat(
 from app.schemas.underwrite import CoverageBlock, CalculatorRequest
 
 AVAILABLE_PRODUCTS = [
+    # ─── Heirs Life Assurance ──────────────────────────────
     CoverageBlock(
         id="life_basic",
         name="Life Protection",
         description="Lump sum payout to your beneficiaries.",
         base_price=5000.0,
-        icon="Heart"
+        icon="Heart",
+        insurer_name="Heirs Life Assurance",
+        category="life"
     ),
     CoverageBlock(
         id="critical_illness",
         name="Critical Illness",
         description="Coverage for cancer, stroke, and heart attack.",
         base_price=3000.0,
-        icon="Activity"
-    ),
-    CoverageBlock(
-        id="accidental_death",
-        name="Accidental Death",
-        description="Double payout for accidental passing.",
-        base_price=1500.0,
-        icon="Zap"
+        icon="Activity",
+        insurer_name="Heirs Life Assurance",
+        category="life"
     ),
     CoverageBlock(
         id="funeral_cover",
         name="Funeral Expenses",
         description="Immediate cash for funeral costs.",
         base_price=1000.0,
-        icon="Umbrella"
-    )
+        icon="Umbrella",
+        insurer_name="Heirs Life Assurance",
+        category="life"
+    ),
+    # ─── Heirs General Insurance ───────────────────────────
+    CoverageBlock(
+        id="auto_comprehensive",
+        name="Auto Comprehensive",
+        description="Full vehicle coverage including theft, fire & third-party.",
+        base_price=8000.0,
+        icon="Car",
+        insurer_name="Heirs General Insurance",
+        category="auto"
+    ),
+    CoverageBlock(
+        id="auto_third_party",
+        name="Auto Third-Party",
+        description="Mandatory third-party liability for all vehicles.",
+        base_price=3500.0,
+        icon="Shield",
+        insurer_name="Heirs General Insurance",
+        category="auto"
+    ),
+    CoverageBlock(
+        id="home_protection",
+        name="Home Protection",
+        description="Fire, flood, and burglary cover for your property.",
+        base_price=4500.0,
+        icon="Home",
+        insurer_name="Heirs General Insurance",
+        category="home"
+    ),
+    # ─── Heirs Gadget Insurance ────────────────────────────
+    CoverageBlock(
+        id="gadget_shield",
+        name="Gadget Shield",
+        description="Comprehensive device cover: theft, damage & liquid spills.",
+        base_price=2500.0,
+        icon="Smartphone",
+        insurer_name="Heirs Gadget Insurance",
+        category="gadget"
+    ),
+    CoverageBlock(
+        id="screen_protect",
+        name="Screen Protect",
+        description="Accidental screen crack and display replacement.",
+        base_price=1200.0,
+        icon="Monitor",
+        insurer_name="Heirs Gadget Insurance",
+        category="gadget"
+    ),
+    CoverageBlock(
+        id="extended_warranty",
+        name="Extended Warranty",
+        description="Manufacturer warranty extension up to 3 additional years.",
+        base_price=1800.0,
+        icon="Clock",
+        insurer_name="Heirs Gadget Insurance",
+        category="gadget"
+    ),
 ]
 
 @router.get("/products")
 async def get_products():
     """Public endpoint to list available coverage blocks."""
     return AVAILABLE_PRODUCTS
+
+@router.get("/products/{product_type}/schema")
+async def get_product_schema(product_type: str):
+    """
+    Returns the dynamic JSON required to underwrite this specific product.
+    This allows B2B Partners to generate their own custom frontend forms 
+    or dynamically map their CRMs.
+    """
+    base_schema = {
+        "age": "integer (required)",
+        "product_type": f"string (must be '{product_type}')",
+        "holder_name": "string (optional)",
+        "holder_email": "string (optional)",
+        "coverage_selection": "array of objects (e.g., [{'id': 'coverage_id', 'amount': 1000}])"
+    }
+
+    # Simulate LLM-extracted dynamic requirements based on the manual type
+    product = product_type.lower()
+    dynamic_requirements = {}
+    
+    if "life" in product:
+        dynamic_requirements = {
+            "medical_history": "string (required: list pre-existing conditions)",
+            "smoker_status": "boolean (required)",
+            "beneficiary_name": "string (optional)"
+        }
+    elif "gadget" in product or "device" in product:
+        dynamic_requirements = {
+            "device_imei": "string (required: 15 digit serial)",
+            "device_model": "string (required)",
+            "purchase_date": "string YYYY-MM-DD (required)"
+        }
+    elif "auto" in product or "motor" in product:
+        dynamic_requirements = {
+            "vehicle_vin": "string (required: 17 chars)",
+            "license_plate": "string (required)",
+            "vehicle_usage": "string (Commercial or Private)"
+        }
+        
+    return {
+        "product": product_type,
+        "base_fields": base_schema,
+        "product_specific_fields": dynamic_requirements,
+        "notes": "You may also pass 'natural_language_query' to override specific rules dynamically."
+    }
 
 
 @router.post("/calculate-premium")

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { CoverageSelector } from './CoverageSelector';
-import { calculatePremium, getProducts, PolicyState, CoverageBlock, submitUnderwriting, payForPolicy } from '../../services/api';
+import { calculatePremium, getProducts, PolicyState, CoverageBlock, submitUnderwriting, payForPolicy, getProductSchema } from '../../services/api';
 import { Loader2, ArrowRight, FileDown } from 'lucide-react';
 
 export function PolicyBuilder() {
@@ -16,6 +16,8 @@ export function PolicyBuilder() {
   const [loading, setLoading] = useState(false);
   const [processingStep, setProcessingStep] = useState<'idle' | 'underwriting' | 'paying' | 'success'>('idle');
   const [policyResult, setPolicyResult] = useState<any>(null);
+  const [schema, setSchema] = useState<any>(null);
+  const [errorMessage, setErrorMessage] = useState('');
 
   // Fetch products on mount
   useEffect(() => {
@@ -56,6 +58,19 @@ export function PolicyBuilder() {
     return () => clearTimeout(timer);
   }, [state.selectedCoverage, state.age, state.gender, state.occupation]);
 
+  // Fetch dynamic schema when coverage changes
+  useEffect(() => {
+    if (state.selectedCoverage.length > 0 && products.length > 0) {
+      // Derive product type from the category of the first selected product
+      const selectedProduct = products.find(p => state.selectedCoverage.includes(p.id));
+      const pt = selectedProduct?.category || 'life';
+      
+      getProductSchema(pt).then(setSchema).catch(console.error);
+    } else {
+      setSchema(null);
+    }
+  }, [state.selectedCoverage, products]);
+
   const toggleCoverage = (id: string) => {
     setState(prev => {
       const exists = prev.selectedCoverage.includes(id);
@@ -68,13 +83,14 @@ export function PolicyBuilder() {
 
   const handlePayment = async () => {
     setProcessingStep('underwriting');
+    setErrorMessage('');
     try {
         // 1. Get Underwriting Decision
         const decision = await submitUnderwriting(state);
         setPolicyResult(decision);
 
         if (decision.status !== 'approved') {
-            alert(`Application Status: ${decision.status}\nReason: ${decision.reason}`);
+            setErrorMessage(`Application Status: ${decision.status.toUpperCase()} - ${decision.reason}`);
             setProcessingStep('idle');
             return;
         }
@@ -88,7 +104,7 @@ export function PolicyBuilder() {
 
     } catch (err: any) {
         console.error(err);
-        alert("Payment Failed: " + err.message);
+        setErrorMessage("Payment Failed: " + err.message);
         setProcessingStep('idle');
     }
   };
@@ -174,6 +190,30 @@ export function PolicyBuilder() {
               </div>
             </div>
 
+            {/* Dynamic Schema Inputs */}
+            {schema && schema.product_specific_fields && Object.keys(schema.product_specific_fields).length > 0 && (
+                <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+                    <h3 className="text-white font-semibold mb-4 capitalize">{schema.product} Specific Requirements</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {Object.entries(schema.product_specific_fields).map(([key, desc]: [string, any]) => (
+                            <div key={key}>
+                                <label className="block text-sm text-white/60 mb-2 capitalize">{key.replace(/_/g, ' ')}</label>
+                                <input 
+                                    type={desc.includes('integer') || desc.includes('number') ? 'number' : 'text'}
+                                    placeholder={desc}
+                                    value={state.dynamicFields?.[key] || ''}
+                                    onChange={(e) => setState(s => ({ 
+                                        ...s, 
+                                        dynamicFields: { ...s.dynamicFields, [key]: e.target.value } 
+                                    }))}
+                                    className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2 text-white focus:border-blue-500 outline-none transition-colors"
+                                />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             <CoverageSelector 
               products={products}
               selectedIds={state.selectedCoverage}
@@ -223,6 +263,12 @@ export function PolicyBuilder() {
                   {processingStep === 'paying' && <><Loader2 className="w-5 h-5 animate-spin mr-2" /> Processing Payment...</>}
                 </button>
                 
+                {errorMessage && (
+                    <div className="bg-red-500/10 border border-red-500/20 text-red-500 p-4 rounded-xl text-sm font-medium animate-in fade-in slide-in-from-bottom-2">
+                        {errorMessage}
+                    </div>
+                )}
+
                 <p className="text-xs text-center text-white/30">
                   Includes AI-generated plain English policy document.
                 </p>

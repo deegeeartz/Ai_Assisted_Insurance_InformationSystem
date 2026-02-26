@@ -30,6 +30,7 @@ origins = [
     "http://localhost:3000",
     "http://localhost:3001",
     "http://localhost:3002",
+    "http://localhost:5173", # Vite Dev Server
 ]
 
 app.add_middleware(
@@ -52,7 +53,7 @@ def health_check():
 
 
 # --- Routers ---
-from app.api.endpoints import manuals, underwrite, auth, operations, partners, compliance, config
+from app.api.endpoints import manuals, underwrite, auth, operations, partners, compliance, config, admin
 
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["Authentication"])
 app.include_router(manuals.router, prefix=f"{settings.API_V1_STR}/manuals", tags=["Manuals"])
@@ -62,6 +63,7 @@ app.include_router(underwrite.router, prefix="/api/v1/underwrite", tags=["underw
 app.include_router(operations.router, prefix="/api/v1", tags=["operations"])
 app.include_router(partners.router, prefix="/api/v1/partners", tags=["partners"])
 app.include_router(compliance.router, prefix="/api/v1/compliance", tags=["compliance"])
+app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
 
 
 # --- Startup: Create Tables & Seed Data ---

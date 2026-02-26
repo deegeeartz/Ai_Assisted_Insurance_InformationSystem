@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import { MessageCircle, X, Send, Bot, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { sendChatMessage, ChatAction } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+import { PortalChatActions } from './PortalChatActions';
 import clsx from 'clsx';
 
 interface Message {
@@ -15,16 +17,21 @@ interface Message {
 }
 
 export function PortalChatBot() {
+  const { user, token } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
-      text: "Hi! I'm your InsurBridge partner assistant. I can help with your dashboard, API keys, commissions, widget integration, and more. What do you need?",
+      text: user?.role === 'admin' 
+        ? "Greetings, Superadmin. I'm your God-Mode assistant. I can fetch global metrics, manage tenants, or adjust configurations. How can I assist?"
+        : "Hi! I'm your InsurBridge partner assistant. I can help with your dashboard, API keys, commissions, widget integration, and more. What do you need?",
       sender: 'bot',
       timestamp: new Date(),
-      suggestions: ['Show my dashboard', 'Generate a new API key', 'Show widget code'],
+      suggestions: user?.role === 'admin' 
+        ? ['Show global dashboard', 'Show active tenants']
+        : ['Show my dashboard', 'Generate a new API key', 'Show widget code'],
     }
   ]);
 
@@ -40,7 +47,7 @@ export function PortalChatBot() {
     setLoading(true);
 
     try {
-      const response: ChatAction = await sendChatMessage(msgText, 'partner');
+      const response: ChatAction = await sendChatMessage(msgText, user?.role || 'partner', token || undefined);
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         text: response.message,
@@ -88,8 +95,12 @@ export function PortalChatBot() {
                 <Bot size={18} />
               </div>
               <div>
-                <h3 className="font-semibold text-sm">InsurBridge Partner AI</h3>
-                <p className="text-xs text-blue-200">Dashboard · API Keys · Commissions</p>
+                <h3 className="font-semibold text-sm">
+                  {user?.role === 'admin' ? "InsurBridge God-Mode AI" : "InsurBridge Partner AI"}
+                </h3>
+                <p className="text-xs text-blue-200">
+                  {user?.role === 'admin' ? "Global Metrics · Tenants · Config" : "Dashboard · API Keys · Commissions"}
+                </p>
               </div>
             </div>
 
@@ -115,37 +126,11 @@ export function PortalChatBot() {
                   {/* Action Data */}
                   {msg.action && msg.action !== 'text_reply' && msg.data && (
                     <div className="ml-9 mt-2">
-                      {/* Dashboard */}
-                      {msg.action === 'show_dashboard' && msg.data.dashboard && (
-                        <div className="grid grid-cols-2 gap-2">
-                          {[
-                            { label: 'Total Policies', value: msg.data.dashboard.total_policies },
-                            { label: 'Active', value: msg.data.dashboard.active_policies },
-                            { label: 'Pending', value: msg.data.dashboard.pending_policies },
-                            { label: 'Premium Value', value: `₦${(msg.data.dashboard.total_premium_value || 0).toLocaleString()}` },
-                          ].map(m => (
-                            <div key={m.label} className="p-2 rounded-lg bg-blue-50 border border-blue-100 text-center">
-                              <p className="text-[10px] text-slate-400">{m.label}</p>
-                              <p className="text-sm font-bold text-slate-800">{m.value}</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {/* Widget Code */}
-                      {msg.action === 'show_widget_code' && msg.data.widget_code && (
-                        <div className="bg-slate-900 rounded-lg p-3 mt-1">
-                          <pre className="text-[10px] text-green-400 font-mono whitespace-pre-wrap">{msg.data.widget_code}</pre>
-                          <button onClick={() => navigator.clipboard.writeText(msg.data?.widget_code || '')} className="mt-2 text-xs text-blue-400 hover:text-blue-300">
-                            📋 Copy
-                          </button>
-                        </div>
-                      )}
-                      {/* API Key */}
-                      {msg.action === 'rotate_api_key' && msg.data.api_key_action && (
-                        <div className="p-2 rounded-lg bg-yellow-50 border border-yellow-200 text-xs text-yellow-700">
-                          {msg.data.message}
-                        </div>
-                      )}
+                      <PortalChatActions 
+                        action={msg.action} 
+                        data={msg.data} 
+                        onSuggestionClick={handleSend} 
+                      />
                     </div>
                   )}
 

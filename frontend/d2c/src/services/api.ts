@@ -9,6 +9,8 @@ export interface CoverageBlock {
   description: string;
   basePrice: number;
   icon: string;
+  insurerName: string;
+  category: string;
 }
 
 export interface PolicyState {
@@ -18,6 +20,7 @@ export interface PolicyState {
   selectedCoverage: string[];
   estimatedPremium: number;
   naturalLanguageQuery?: string;
+  dynamicFields?: Record<string, string>;
 }
 
 export interface UnderwritingResponse {
@@ -118,15 +121,17 @@ export async function getProducts(): Promise<CoverageBlock[]> {
       name: item.name,
       description: item.description,
       basePrice: item.base_price,
-      icon: item.icon
+      icon: item.icon,
+      insurerName: item.insurer_name || 'Unknown Insurer',
+      category: item.category || 'life'
     }));
   } catch (err) {
     console.error("API Error, falling back to mock", err);
     return [
-      { id: "life_basic", name: "Life Protection", description: "Lump sum payout to beneficiaries.", basePrice: 5000, icon: "Heart" },
-      { id: "critical_illness", name: "Critical Illness", description: "Coverage for serious conditions.", basePrice: 3000, icon: "Activity" },
-      { id: "accidental_death", name: "Accidental Death", description: "Double payout for accidents.", basePrice: 1500, icon: "Zap" },
-      { id: "funeral_cover", name: "Funeral Expenses", description: "Immediate cash for funeral.", basePrice: 1000, icon: "Umbrella" },
+      { id: "life_basic", name: "Life Protection", description: "Lump sum payout to beneficiaries.", basePrice: 5000, icon: "Heart", insurerName: "Heirs Life Assurance", category: "life" },
+      { id: "critical_illness", name: "Critical Illness", description: "Coverage for serious conditions.", basePrice: 3000, icon: "Activity", insurerName: "Heirs Life Assurance", category: "life" },
+      { id: "auto_comprehensive", name: "Auto Comprehensive", description: "Full vehicle coverage.", basePrice: 8000, icon: "Car", insurerName: "Heirs General Insurance", category: "auto" },
+      { id: "gadget_shield", name: "Gadget Shield", description: "Comprehensive device cover.", basePrice: 2500, icon: "Smartphone", insurerName: "Heirs Gadget Insurance", category: "gadget" },
     ];
   }
 }
@@ -151,11 +156,27 @@ export async function calculatePremium(state: PolicyState): Promise<number> {
   }
 }
 
+export async function getProductSchema(productType: string): Promise<any> {
+    const res = await fetch(`${API_URL}/products/${productType}/schema`);
+    if (!res.ok) throw new Error('Failed to fetch schema');
+    return res.json();
+}
+
 // ============================================================
 //  UNDERWRITING
 // ============================================================
 export async function submitUnderwriting(state: PolicyState): Promise<UnderwritingResponse> {
   const productType = state.selectedCoverage.join(', ') || "General Insurance";
+  
+  let nlpQuery = `I am a ${state.age} year old ${state.gender} ${state.occupation} looking for ${productType}.`;
+  if (state.dynamicFields) {
+    const extras = Object.entries(state.dynamicFields)
+      .filter(([_, v]) => v && v.trim() !== '')
+      .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`)
+      .join(', ');
+    if (extras) nlpQuery += ` ${extras}`;
+  }
+
   const res = await fetch(`${API_URL}/underwrite`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -164,7 +185,7 @@ export async function submitUnderwriting(state: PolicyState): Promise<Underwriti
       gender: state.gender,
       occupation: state.occupation,
       role: "consumer",
-      natural_language_query: `I am a ${state.age} year old ${state.gender} ${state.occupation} looking for ${productType}.`,
+      natural_language_query: nlpQuery,
       coverage_selection: []
     }),
   });

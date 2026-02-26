@@ -137,13 +137,24 @@ export interface ChatAction {
 
 export async function sendChatMessage(
   message: string,
-  role: string = 'partner'
+  role: string = 'partner',
+  token?: string
 ): Promise<ChatAction> {
   try {
-    const res = await fetch(
-      `${API_URL}/chat?message=${encodeURIComponent(message)}&role=${role}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' } }
-    );
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    
+    const payload = { 
+      message, 
+      role,
+      history: []
+    };
+
+    const res = await fetch(`${API_URL}/chat`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
     if (!res.ok) throw new Error('Chat failed');
     return await res.json();
   } catch (err) {
@@ -154,6 +165,56 @@ export async function sendChatMessage(
       data: {},
       suggestions: ["Show my dashboard", "Generate API key"],
       role: 'system',
-    };
+    }
   }
+}
+
+// ============================================================
+//  SUPERADMIN ENDPOINTS
+// ============================================================
+
+export async function fetchGlobalMetrics(token: string) {
+  const res = await fetch(`${API_URL}/admin/metrics`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Failed to fetch global metrics');
+  return res.json();
+}
+
+export async function fetchTenants(token: string) {
+  const res = await fetch(`${API_URL}/admin/tenants`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Failed to fetch tenants');
+  return res.json();
+}
+
+export async function toggleTenantStatus(token: string, tenantId: string) {
+  const res = await fetch(`${API_URL}/admin/tenants/${tenantId}/suspend`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Failed to toggle tenant');
+  return res.json();
+}
+
+export async function fetchPlatformConfigs(token: string) {
+  const res = await fetch(`${API_URL}/admin/config`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Failed to fetch platform configs');
+  return res.json();
+}
+
+export async function updatePlatformConfig(token: string, key: string, value: string) {
+  const res = await fetch(`${API_URL}/admin/config/${key}`, {
+    method: 'PUT',
+    headers: { 
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}` 
+    },
+    body: JSON.stringify({ value })
+  });
+  if (!res.ok) throw new Error(`Failed to update config ${key}`);
+  return res.json();
 }
