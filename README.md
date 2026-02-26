@@ -35,3 +35,10 @@ uvicorn app.main:app --reload --port 8000
 ## API Documentation
 
 Visit `http://localhost:8000/docs` for interactive Swagger UI.
+
+## Architecture & UI Documentation
+
+Detailed documentation for the hackathon can be found in the `docs/` folder:
+
+- [Project Overview & Architecture](docs/project_overview.md) - System design, Liquid Logic, and remaining tasks.
+- [Frontend UI Walkthrough](docs/walkthrough.md) - Explains the multi-insurer scalable product catalog design.
