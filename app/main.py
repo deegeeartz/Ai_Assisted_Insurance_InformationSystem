@@ -2,7 +2,6 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from app.core.config import settings
 import logging
-import traceback
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,12 +15,11 @@ app = FastAPI(
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    tb = traceback.format_exception(type(exc), exc, exc.__traceback__)
-    logger.error(f"Unhandled error on {request.method} {request.url}:\n{''.join(tb)}")
-    return JSONResponse(
-        status_code=500,
-        content={"detail": str(exc), "traceback": ''.join(tb)},
-    )
+    logger.exception("Unhandled error on %s %s", request.method, request.url, exc_info=exc)
+    content = {"detail": "Internal server error"}
+    if settings.EXPOSE_ERROR_DETAILS:
+        content["error"] = str(exc)
+    return JSONResponse(status_code=500, content=content)
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -59,7 +57,6 @@ app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["Aut
 app.include_router(manuals.router, prefix=f"{settings.API_V1_STR}/manuals", tags=["Manuals"])
 app.include_router(config.router, prefix=f"{settings.API_V1_STR}/config", tags=["Configuration"])
 app.include_router(underwrite.router, prefix=f"{settings.API_V1_STR}", tags=["Underwriting"])
-app.include_router(underwrite.router, prefix="/api/v1/underwrite", tags=["underwrite"])
 app.include_router(operations.router, prefix="/api/v1", tags=["operations"])
 app.include_router(partners.router, prefix="/api/v1/partners", tags=["partners"])
 app.include_router(compliance.router, prefix="/api/v1/compliance", tags=["compliance"])
@@ -75,10 +72,10 @@ from app.db.init_db import init_db
 
 @app.on_event("startup")
 async def startup_event():
-    # Only create tables if NOT using Alembic (for Hackathon speed)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    
-    # Seed data
-    async with AsyncSessionLocal() as db:
-        await init_db(db)
+    if settings.AUTO_CREATE_TABLES:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+    if settings.AUTO_SEED_DATA:
+        async with AsyncSessionLocal() as db:
+            await init_db(db)

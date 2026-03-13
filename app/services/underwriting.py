@@ -65,31 +65,30 @@ async def route_to_product(request: UnderwriteRequest, db: AsyncSession) -> Unde
             inferred_type = _product_router_cache[cache_key]
         else:
             llm = get_llm()
-        routing_prompt = f"""
-        A user said: "{request.natural_language_query}"
-        
-        Available insurance product types: {available_types}
-        
-        Which product type best matches their intent? 
-        Reply with ONLY the product type name, nothing else.
-        """
-        try:
-            response = await llm.ainvoke([HumanMessage(content=routing_prompt)])
-            inferred_type = normalize_content(response.content).strip()
-        except Exception as e:
-            logger.error(f"LLM Routing failed: {e}. Falling back to keyword match.")
-            # Fallback: Check if any product type is in the query string
-            inferred_type = None
-            query_lower = request.natural_language_query.lower()
-            for p_type in available_types:
-                if p_type in query_lower:
-                    inferred_type = p_type
-                    break
+            routing_prompt = f"""
+            A user said: "{request.natural_language_query}"
             
-            if not inferred_type:
-                return None
+            Available insurance product types: {available_types}
             
-            # Update cache
+            Which product type best matches their intent? 
+            Reply with ONLY the product type name, nothing else.
+            """
+            try:
+                response = await llm.ainvoke([HumanMessage(content=routing_prompt)])
+                inferred_type = normalize_content(response.content).strip()
+            except Exception as e:
+                logger.error(f"LLM Routing failed: {e}. Falling back to keyword match.")
+                # Fallback: Check if any product type is in the query string
+                inferred_type = None
+                query_lower = request.natural_language_query.lower()
+                for p_type in available_types:
+                    if p_type in query_lower:
+                        inferred_type = p_type
+                        break
+
+                if not inferred_type:
+                    return None
+
             _product_router_cache[cache_key] = inferred_type
 
         result = await db.execute(

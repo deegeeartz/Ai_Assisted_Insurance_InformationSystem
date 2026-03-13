@@ -55,7 +55,12 @@ export function InsurDrop() {
                   <p className="text-xs text-blue-200">Instant answers via Liquid Logic</p>
                 </div>
               </div>
-              <button onClick={() => setIsOpen(false)} className="text-white/70 hover:text-white">
+              <button
+                onClick={() => setIsOpen(false)}
+                aria-label="Close chat widget"
+                title="Close chat"
+                className="text-white/70 hover:text-white"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -88,7 +93,12 @@ export function InsurDrop() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                 />
-                <button type="submit" className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors">
+                <button
+                  type="submit"
+                  aria-label="Send message"
+                  title="Send message"
+                  className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors"
+                >
                   <Send className="w-4 h-4" />
                 </button>
               </form>
@@ -99,6 +109,8 @@ export function InsurDrop() {
 
       <motion.button
         onClick={() => setIsOpen(!isOpen)}
+        aria-label={isOpen ? 'Close chat widget' : 'Open chat widget'}
+        title={isOpen ? 'Close chat' : 'Open chat'}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         className="w-14 h-14 bg-blue-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-blue-700 transition-colors"

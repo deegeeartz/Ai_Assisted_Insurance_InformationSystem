@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.core import Payment, Policy
+from app.services.sla import record_policy_sla_event
 import logging
 
 logger = logging.getLogger(__name__)
@@ -53,8 +54,15 @@ async def process_payment(
     )
 
     db.add(payment)
+    policy.status = "active"
     await db.commit()
     await db.refresh(payment)
+    await db.refresh(policy)
+
+    try:
+        await record_policy_sla_event(db=db, policy=policy, event_type="policy_activated")
+    except Exception as error:
+        logger.warning(f"SLA policy_activated metric update skipped: {error}")
 
     logger.info(
         f"Payment processed: {amount} {currency} for {policy_number} | "

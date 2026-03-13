@@ -16,6 +16,7 @@ export function PolicyBuilder() {
   const [loading, setLoading] = useState(false);
   const [processingStep, setProcessingStep] = useState<'idle' | 'underwriting' | 'paying' | 'success'>('idle');
   const [policyResult, setPolicyResult] = useState<any>(null);
+  const [paymentResult, setPaymentResult] = useState<any>(null);
   const [schema, setSchema] = useState<any>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -97,7 +98,8 @@ export function PolicyBuilder() {
 
         // 2. Process Real Payment
         setProcessingStep('paying');
-        await payForPolicy(decision.policy_number || "PENDING");
+        const payment = await payForPolicy(decision.policy_number || "PENDING");
+        setPaymentResult(payment);
         
         // 3. Success
         setProcessingStep('success');
@@ -110,7 +112,8 @@ export function PolicyBuilder() {
   };
 
   if (processingStep === 'success') {
-      const downloadUrl = `http://localhost:8000/api/v1/documents/key-facts/${policyResult?.policy_number}?format=pdf`;
+      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+      const downloadUrl = `${apiBase}/documents/key-facts/${policyResult?.policy_number}?format=pdf`;
 
       return (
           <div className="py-20 container mx-auto px-6 text-center">
@@ -127,6 +130,14 @@ export function PolicyBuilder() {
                           <span className="font-mono font-bold text-white">{policyResult?.policy_number}</span>
                       </div>
                       <div className="flex justify-between text-white/80">
+                        <span>Gateway</span>
+                        <span className="font-bold text-white">{paymentResult?.gateway_name || 'Paystack (Simulated)'}</span>
+                      </div>
+                      <div className="flex justify-between text-white/80">
+                        <span>Reference</span>
+                        <span className="font-mono text-xs font-bold text-white">{paymentResult?.gateway_reference}</span>
+                      </div>
+                      <div className="flex justify-between text-white/80">
                           <span>Monthly Premium</span>
                           <span className="font-bold text-white">₦{policyResult?.premium_monthly?.toLocaleString()}</span>
                       </div>
@@ -141,6 +152,17 @@ export function PolicyBuilder() {
                     >
                         <FileDown className="w-5 h-5" /> Download Key Facts Document
                     </a>
+
+                    {paymentResult?.authorization_url && (
+                      <a
+                        href={paymentResult.authorization_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn bg-green-600/80 hover:bg-green-700 text-white px-8 py-3 rounded-full font-bold transition-all"
+                      >
+                        View Simulated Checkout
+                      </a>
+                    )}
                     
                     <button 
                         onClick={() => window.location.reload()}
@@ -172,6 +194,7 @@ export function PolicyBuilder() {
                 <label className="block text-sm text-white/60 mb-2">Your Age</label>
                 <input 
                   type="number" 
+                  aria-label="Your Age"
                   value={state.age}
                   onChange={(e) => setState(s => ({ ...s, age: parseInt(e.target.value) || 0 }))}
                   className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2 text-white focus:border-blue-500 outline-none transition-colors"
@@ -180,6 +203,7 @@ export function PolicyBuilder() {
               <div>
                 <label className="block text-sm text-white/60 mb-2">Gender</label>
                 <select 
+                  aria-label="Gender"
                   className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2 text-white focus:border-blue-500 outline-none transition-colors"
                   value={state.gender}
                   onChange={(e) => setState(s => ({ ...s, gender: e.target.value }))}

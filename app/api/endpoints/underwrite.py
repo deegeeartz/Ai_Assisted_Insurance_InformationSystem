@@ -7,9 +7,10 @@ from app.schemas.underwrite import UnderwriteRequest, UnderwriteDecision, ChatRe
 from app.services.underwriting import route_to_product, execute_underwriting
 from app.services.protocol_adapter import create_soap_response
 from app.services.policy_number import generate_policy_number
-from app.services.auth import get_user_by_api_key
+from app.services.auth import get_user_by_api_key, get_current_user
 from app.models.core import Policy, Payment, User
 from app.models.chat_log import ChatLog
+from app.services.sla import record_policy_sla_event
 import json
 import uuid
 import time
@@ -43,6 +44,48 @@ def normalize_content(content):
 router = APIRouter()
 
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
+
+
+@router.get("/policies/my")
+async def get_my_policies(
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Authenticated policy history endpoint.
+    - Consumer: own policies by holder_email
+    - Partner: policies sold by this partner
+    - Insurer/Admin/Compliance: tenant-scoped policies
+    """
+    role = str(current_user.role)
+    query = select(Policy)
+
+    if role == "consumer":
+        query = query.where(Policy.holder_email == current_user.email)
+    elif role == "partner":
+        query = query.where(Policy.partner_id == current_user.id)
+    elif role in ("insurer", "admin", "compliance_officer"):
+        query = query.where(Policy.tenant_id == (current_user.tenant_id or current_user.email))
+    else:
+        query = query.where(Policy.holder_email == current_user.email)
+
+    result = await db.execute(query.order_by(Policy.bound_at.desc()).limit(limit))
+    policies = result.scalars().all()
+
+    return [
+        {
+            "policy_number": p.policy_number,
+            "product_type": p.product_type,
+            "status": p.status,
+            "holder_name": p.holder_name,
+            "holder_email": p.holder_email,
+            "premium_monthly": p.premium_monthly,
+            "premium_annual": p.premium_annual,
+            "bound_at": p.bound_at,
+        }
+        for p in policies
+    ]
 
 
 # ============================================================
@@ -106,6 +149,10 @@ async def underwrite(
         db.add(new_policy)
         await db.commit()
         await db.refresh(new_policy)
+        try:
+            await record_policy_sla_event(db=db, policy=new_policy, event_type="policy_created")
+        except Exception as error:
+            logger.warning(f"SLA policy_created metric update skipped: {error}")
 
     accept_header = http_request.headers.get("accept", "application/json")
     if "soap+xml" in accept_header or "text/xml" in accept_header:
@@ -198,6 +245,11 @@ async def soap_underwrite(
         )
         db.add(new_policy)
         await db.commit()
+        await db.refresh(new_policy)
+        try:
+            await record_policy_sla_event(db=db, policy=new_policy, event_type="policy_created")
+        except Exception as error:
+            logger.warning(f"SLA policy_created metric update skipped: {error}")
 
     return create_soap_response(decision.model_dump(mode="json"))
 
@@ -224,11 +276,16 @@ async def mock_pay(
             "status": "already_paid",
             "message": "This policy is already active.",
             "policy_number": policy_number,
+            "gateway": "paystack_sim",
         }
 
     # Simulate payment
-    ref = f"PAY-SIM-{uuid.uuid4().hex[:8].upper()}"
+    ref = f"PSK_SIM_{uuid.uuid4().hex[:10].upper()}"
+    access_code = f"ACCSIM{uuid.uuid4().hex[:12].upper()}"
+    authorization_url = f"https://checkout.paystack.com/{access_code}"
+    paid_at = datetime.utcnow().isoformat() + "Z"
     amount = policy.premium_annual or (policy.premium_monthly or 0) * 12
+    amount_kobo = int(round(amount * 100))
 
     # Fetch global commission config
     from app.models.core import PlatformConfig
@@ -257,19 +314,64 @@ async def mock_pay(
     # Activate policy
     policy.status = "active"
     await db.commit()
+    await db.refresh(policy)
+    try:
+        await record_policy_sla_event(db=db, policy=policy, event_type="policy_activated")
+    except Exception as error:
+        logger.warning(f"SLA policy_activated metric update skipped: {error}")
 
     return {
         "status": "success",
         "message": f"Payment of ₦{amount:,.2f} simulated successfully.",
         "policy_number": policy_number,
+        "gateway": "paystack_sim",
+        "gateway_name": "Paystack (Simulated)",
         "gateway_reference": ref,
+        "authorization_url": authorization_url,
+        "access_code": access_code,
+        "payment_stage": "verified",
         "receipt": {
             "amount": amount,
+            "amount_kobo": amount_kobo,
             "insurer_share": round(insurer_share, 2),
             "partner_commission": round(partner_commission, 2),
             "platform_fee": round(platform_fee, 2),
             "currency": "NGN",
-        }
+        },
+        "paystack_like": {
+            "status": True,
+            "message": "Verification successful (simulated)",
+            "data": {
+                "authorization_url": authorization_url,
+                "access_code": access_code,
+                "reference": ref,
+                "amount": amount_kobo,
+                "currency": "NGN",
+                "channel": "card",
+                "gateway_response": "Successful",
+                "status": "success",
+                "paid_at": paid_at,
+                "metadata": {
+                    "policy_number": policy_number,
+                    "product_type": policy.product_type,
+                    "simulation": True,
+                },
+                "customer": {
+                    "email": policy.holder_email,
+                    "name": policy.holder_name,
+                },
+            },
+        },
+        "simulation": {
+            "provider": "paystack",
+            "country": "NG",
+            "mode": "simulated",
+            "timeline": [
+                {"stage": "initialize", "status": "success"},
+                {"stage": "authorize", "status": "success"},
+                {"stage": "verify", "status": "success"},
+            ],
+        },
     }
 
 
@@ -395,6 +497,11 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
             )
             db.add(new_policy)
             await db.commit()
+            await db.refresh(new_policy)
+            try:
+                await record_policy_sla_event(db=db, policy=new_policy, event_type="policy_created")
+            except Exception as error:
+                logger.warning(f"SLA policy_created metric update skipped: {error}")
 
         return {
             "quote": {
@@ -561,9 +668,10 @@ async def agentic_chat(
     """
     from app.core.llm import get_llm
     from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+    from app.core.config import settings
     from app.services.underwriting import get_all_manuals, route_to_product
     from jose import jwt
-    from app.services.auth import SECRET_KEY, ALGORITHM
+    from app.services.auth import ALGORITHM
 
     # Extract user if authenticated
     user = None
@@ -571,7 +679,7 @@ async def agentic_chat(
     if auth_header and auth_header.startswith("Bearer "):
         try:
             token = auth_header.split(" ")[1]
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[ALGORITHM])
             email = payload.get("sub")
             if email:
                 user = (await db.execute(select(User).where(User.email == email))).scalars().first()

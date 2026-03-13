@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Settings } from 'lucide-react';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+
 export function PolicyConfig() {
   const { token } = useAuth();
   const [prefixes, setPrefixes] = useState<Record<string, string>>({});
@@ -13,7 +15,7 @@ export function PolicyConfig() {
 
   const loadConfig = async () => {
     try {
-        const res = await fetch('http://localhost:8000/api/v1/config/policy/prefixes', {
+        const res = await fetch(`${API_URL}/config/policy/prefixes`, {
             headers: { Authorization: `Bearer ${token}` }
         });
         if (res.ok) {
@@ -27,7 +29,7 @@ export function PolicyConfig() {
   const handleUpdate = async (product: string, newPrefix: string) => {
     try {
         setLoading(true);
-        const res = await fetch('http://localhost:8000/api/v1/config/policy/prefixes', {
+        const res = await fetch(`${API_URL}/config/policy/prefixes`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -66,6 +68,8 @@ export function PolicyConfig() {
                     <div className="flex items-center gap-2">
                         <input
                             type="text"
+                            aria-label={`Policy prefix for ${product.replace('_', ' ')}`}
+                            title={`Policy prefix for ${product.replace('_', ' ')}`}
                             defaultValue={String(prefix)}
                             disabled={loading}
                             className="w-24 px-3 py-2 border rounded font-mono text-center uppercase disabled:opacity-50"

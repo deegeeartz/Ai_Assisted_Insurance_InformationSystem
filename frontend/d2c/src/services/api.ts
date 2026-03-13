@@ -1,4 +1,4 @@
-const API_URL = 'http://localhost:8000/api/v1';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
 // ============================================================
 //  INTERFACES
@@ -46,8 +46,10 @@ export interface PolicyInfo {
   product_type: string;
   status: string;
   holder_name: string;
+  holder_email?: string;
   premium_monthly: number | null;
   premium_annual: number | null;
+  bound_at?: string;
 }
 
 export interface AuthToken {
@@ -215,10 +217,21 @@ export async function payForPolicy(policyNumber: string): Promise<any> {
 //  POLICIES
 // ============================================================
 export async function getMyPolicies(email?: string): Promise<PolicyInfo[]> {
-  // Use the agentic chat to fetch policies, or direct DB query endpoint
-  // For now, we send a chat action
-  const res = await sendChatMessage(`Show my policies${email ? ` for ${email}` : ''}`);
-  return res.data?.policies || [];
+  const params = new URLSearchParams();
+  if (email) params.set('holder_email', email);
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+
+  const res = await fetch(`${API_URL}/policies/my${suffix}`, {
+    method: 'GET',
+    headers: authHeaders(),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to fetch policies' }));
+    throw new Error(err.detail || 'Failed to fetch policies');
+  }
+
+  return res.json();
 }
 
 // ============================================================
