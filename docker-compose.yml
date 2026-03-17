@@ -14,7 +14,12 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - SECRET_KEY=${SECRET_KEY}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - AUTO_CREATE_TABLES=${AUTO_CREATE_TABLES:-true}
+      - AUTO_SEED_DATA=${AUTO_SEED_DATA:-true}
+      - SQL_ECHO=${SQL_ECHO:-false}
+      - EXPOSE_ERROR_DETAILS=${EXPOSE_ERROR_DETAILS:-false}
     depends_on:
       db:
         condition: service_healthy
