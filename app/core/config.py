@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     SQL_ECHO: bool = False
     AUTO_CREATE_TABLES: bool = False
     AUTO_SEED_DATA: bool = False
+    # Comma-separated list of additional allowed CORS origins (for deployed frontends).
+    # Localhost dev origins are always included automatically.
+    # Example: CORS_ORIGINS=https://app.insurbridge.ai,https://portal.insurbridge.ai
+    CORS_ORIGINS: str = ""
 
     POSTGRES_SERVER: str = "localhost"
     POSTGRES_USER: str = "postgres"

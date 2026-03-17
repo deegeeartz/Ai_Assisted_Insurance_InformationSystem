@@ -3,8 +3,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.db.session import get_db
 from app.models.manual import UnderwritingManual
+from app.models.core import User
 from app.schemas.manual import ManualResponse
 from app.core.security import encrypt_data
+from app.services.auth import get_current_user
+from app.services.tenant import manual_tenant_from_product
 import os
 import aiofiles
 from datetime import datetime
@@ -32,6 +35,7 @@ async def upload_manual(
     product_type: str = Form(...),
     version: str = Form("v1"),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     if not (file.filename.endswith(".pdf") or file.filename.endswith(".txt")):
         raise HTTPException(status_code=400, detail="Only PDF and TXT files are allowed.")
@@ -46,6 +50,10 @@ async def upload_manual(
     async with aiofiles.open(file_path, "wb") as out_file:
         await out_file.write(encrypted_content)
 
+    # Prefer the uploading user's explicit tenant_id; fall back to product-type heuristic
+    # so the field is always populated (never left NULL on new records).
+    tenant_id = current_user.tenant_id or manual_tenant_from_product(product_type)
+
     # Create DB record
     db_manual = UnderwritingManual(
         filename=file.filename,
@@ -53,6 +61,7 @@ async def upload_manual(
         version=version,
         encrypted_file_path=file_path,
         is_active=True,
+        tenant_id=tenant_id,
     )
     db.add(db_manual)
     await db.commit()

@@ -49,150 +49,76 @@ graph TB
 
 ## Where It Is At (Current State)
 
-### ✅ What's Working
+### ✅ What Is Implemented and Verified
 
-| Component                           | Status        | Notes                                                     |
-| ----------------------------------- | ------------- | --------------------------------------------------------- |
-| **Auth** (register, login, JWT)     | ✅ Working    | Partners, insurers, consumers, compliance roles           |
-| **Manual Upload + AI Ingestion**    | ✅ Working    | TXT/PDF → encrypted storage → Gemini compilation          |
-| **AI Underwriting** (`/underwrite`) | ✅ Working    | Routes to product manual, LLM makes decisions             |
-| **AI Chat** (`/chat`)               | ✅ Working    | General expert + product-specific modes                   |
-| **D2C Frontend**                    | ✅ Builds     | Hero, PolicyBuilder, CoverageSelector, ChatBot            |
-| **Admin Portal**                    | ✅ Builds     | Login, role-based dashboards, SLA, rules inspector        |
-| **Widget**                          | ✅ Builds     | Floating chatbot component                                |
-| **Docker Compose**                  | ✅ Defined    | Backend, 3 frontends, PostgreSQL, Redis                   |
-| **3 Product Manuals**               | ✅ Seeded     | Life (term), Auto (comprehensive), Gadget (device)        |
-| **Payment Processing**              | ⚠️ Scaffolded | Commission splitting logic exists, no gateway integration |
-| **SLA Tracking**                    | ⚠️ Scaffolded | Model + dashboard endpoint, no real metrics flowing       |
-| **Webhook Dispatch**                | ⚠️ Scaffolded | Register/list endpoints, HTTP dispatch logic              |
-| **Document Generation**             | ⚠️ Scaffolded | PDF/DOCX key-facts + SLA report generators                |
-| **Batch CSV Export**                | ⚠️ Scaffolded | Legacy export endpoint                                    |
+| Component                           | Status                | Notes                                                               |
+| ----------------------------------- | --------------------- | ------------------------------------------------------------------- |
+| **Auth** (register/login/JWT/me)    | ✅ Working            | Role-based auth for consumer, partner, insurer, compliance, admin   |
+| **Manual Upload + AI Ingestion**    | ✅ Working            | TXT/PDF upload, encrypted storage, compiled rules extraction        |
+| **AI Underwriting** (`/underwrite`) | ✅ Working            | Product routing, decisioning, policy creation                       |
+| **Agentic Chat** (`/chat`)          | ✅ Working            | Conversational actions + role-specific behavior                     |
+| **Payment Flow**                    | ✅ Simulated          | Paystack-style simulation with split logic + activation             |
+| **SLA Dashboard/Breaches**          | ✅ Active             | Event-driven `actual_value` + `is_breached` updates now flowing     |
+| **D2C Policy History**              | ✅ Authenticated REST | Uses `GET /api/v1/policies/my` (no chat dependency)                 |
+| **Portal + Widget**                 | ✅ Working            | Portal auth bootstrap fixed; widget accessibility improved          |
+| **Frontend Config Hygiene**         | ✅ Working            | `VITE_API_URL` used across D2C/Portal/Widget                        |
+| **Targeted Regression Tests**       | ✅ Passing            | `tests/test_simple.py` + `tests/test_underwriting.py` → `14 passed` |
 
-### ⚠️ Known Issues (Recently Fixed)
+### ✅ Security & Hardening Highlights
 
-- **API key loading**: `.env` was not auto-loaded → Fixed via `pydantic_settings` with `env_file=".env"`
-- **LLM response format**: `response.content` returns list-of-dicts in newer `langchain-google-genai` → Fixed with `normalize_content()` helper
-- **Missing error handling**: `/underwrite` crashed on LLM failures → Added try/except with graceful fallbacks
+- API error responses no longer leak stack traces.
+- JWT and encryption keys are enforced from environment config.
+- Startup table creation/seeding is opt-in via environment flags.
+- SQL echo/debug behavior is environment-controlled.
+- Compliance/audit endpoints now apply tenant scoping for non-admin users.
 
-### 🔴 What's Not Working / Missing
+### ⚠️ Remaining Gaps (Realistic Next Milestones)
 
-1. **No real payment gateway** — Paystack/Stripe integration is placeholder only
-2. **No email notifications** — `emails` is a dependency but not wired up
-3. **SLA metrics are empty** — No real data flowing into `SLARecord`
-4. **Ingestion needs `normalize_content()`** — [ingestion.py:79](file:///c:/Users/PC/Documents/GitHub/heirs_insurance_hackathon/app/services/ingestion.py#L79) uses `response.content` directly (same list bug)
-5. **Widget + D2C not connected to auth** — No login flow for consumers
-6. **No tests passing** — Test files exist but aren't maintained
-7. **`google.generativeai` deprecation** — Package shows deprecation warning on import
+1. **Real payment gateway integration** — still simulation-only (no live settlement).
+2. **Notification workflows** — transactional email/SMS pipelines are not wired.
+3. **Tenant model maturity** — tenant mapping still relies partly on product conventions in prototype flows.
+4. **Broader automated test coverage** — targeted suites pass, but end-to-end coverage remains limited.
+5. **LLM SDK future-proofing** — dependency path should be reviewed against deprecation notices.
 
 ---
 
-## What's Left to Complete
+## What’s Next (Production Readiness)
 
-### Critical for Demo / Presentation
+### High Priority
 
-- [ ] **Fix ingestion `normalize_content` bug** — Same `response.content` list issue exists in [ingestion.py](file:///c:/Users/PC/Documents/GitHub/heirs_insurance_hackathon/app/services/ingestion.py)
-- [ ] **End-to-end D2C flow** — Consumer selects coverage → AI underwrites → shows decision → (mock) payment
-- [ ] **Admin portal connected to real data** — Dashboard stats, recent policies, SLA metrics
-- [ ] **Deploy with Docker Compose** — Verify all services start and communicate
+- [ ] Integrate live payment verification callbacks (Paystack/Stripe) and reconciliation jobs.
+- [ ] Add robust tenant identity model (first-class tenant entities + FK relationships).
+- [ ] Add integration tests for auth + policy + payment + SLA + compliance paths.
 
-### Nice-to-Have
+### Medium Priority
 
-- [ ] Chat history persistence (currently in-memory per browser session)
-- [ ] Consumer policy lookup / "My Policies" page
-- [ ] Partner onboarding flow through portal
-
----
-
-## Recommendations to Make It More Practical
-
-### 1. Fix the Remaining `normalize_content` Bug
-
-**Impact**: High · **Effort**: 5 min
-
-The same `response.content` list issue we fixed in underwriting also exists in `ingestion.py` line 79. When a new manual is uploaded, the compilation step will crash.
-
-````diff
-# ingestion.py line 79
-- compiled_json = response.content.replace("```json", "").replace("```", "").strip()
-+ raw = response.content
-+ if isinstance(raw, list):
-+     raw = " ".join(p['text'] if isinstance(p, dict) and 'text' in p else str(p) for p in raw)
-+ compiled_json = raw.replace("```json", "").replace("```", "").strip()
-````
+- [ ] Persist chat sessions/conversation state for continuity.
+- [ ] Improve observability (structured logs, metrics, alerting dashboards).
+- [ ] Add approval workflows and immutable compliance audit ledger.
 
 ---
 
-### 2. Add a Real Payment Flow (Paystack)
+## Practical Recommendations
 
-**Impact**: High · **Effort**: 2-3 hours
+### 1. Strengthen tenant isolation model
 
-The payment model and commission split logic already exist. Wire up [Paystack's API](https://paystack.com/docs/api/):
+Use explicit `tenant` tables and foreign keys across policies/manuals/SLA/webhooks rather than inferred mapping from product strings.
 
-1. Generate a Paystack payment link after underwriting approval
-2. Verify payment via webhook callback
-3. Update `Payment.status` to `"success"` and `Policy.status` to `"active"`
+### 2. Add E2E role/tenant authorization tests
 
----
+Cover admin vs insurer vs compliance vs consumer access boundaries for `/compliance/*`, `/sla/*`, and `/policies/my`.
 
-### 3. Populate SLA Metrics Automatically
+### 3. Productionize payment lifecycle
 
-**Impact**: Medium · **Effort**: 1 hour
+Move from simulation to webhook-verified payment states, retry logic, and idempotent event handling.
 
-Currently `SLARecord` is never written to. Add automatic tracking:
+### 4. Harden session/token strategy
 
-- Record `quote_response_time` on every `/underwrite` call
-- Record `claim_processing_time` when status changes
-- Feed this into the existing SLA dashboard
+Migrate from demo `localStorage` usage to HttpOnly cookies + refresh-token rotation in production.
 
----
+### 5. Expand observability and audit integrity
 
-### 4. Add Conversation History to Chat
-
-**Impact**: Medium · **Effort**: 1-2 hours
-
-Currently each `/chat` call is stateless — no memory. Add a `session_id` parameter and store messages in Redis:
-
-- Consumer gets contextual follow-ups instead of cold starts
-- Agent mode can build up a complete understanding of the case
-
----
-
-### 5. Consumer Authentication + Policy Dashboard
-
-**Impact**: Medium · **Effort**: 2-3 hours
-
-Let consumers register, view their policies, and track claims:
-
-1. Add a simple signup/login to the D2C app
-2. Create a "My Policies" page showing active policies
-3. Link underwriting decisions to the consumer's user ID
-
----
-
-### 6. Migrate Away from Deprecated `google.generativeai`
-
-**Impact**: Low (future-proofing) · **Effort**: 30 min
-
-The `google.generativeai` package shows deprecation warnings. Migrate to the newer `google-genai` SDK, or rely solely on `langchain-google-genai` which wraps it:
-
-```diff
-# llm.py — remove direct genai import
-- import google.generativeai as genai
-- genai.configure(api_key=api_key, transport="rest")
-# langchain-google-genai handles configuration internally
-```
-
----
-
-### 7. Add Basic Automated Tests
-
-**Impact**: Medium · **Effort**: 2-3 hours
-
-The `tests/` directory exists but is empty. Add:
-
-- Unit tests for `route_to_product` and `execute_underwriting`
-- Integration test for the full `/underwrite` flow
-- API test for `/chat` with mocked LLM
+Add immutable audit records, request IDs, and operational metrics dashboards.
 
 ---
 

@@ -11,6 +11,7 @@ from app.services.auth import get_user_by_api_key, get_current_user
 from app.models.core import Policy, Payment, User
 from app.models.chat_log import ChatLog
 from app.services.sla import record_policy_sla_event
+from app.services.tenant import policy_tenant_from_product
 import json
 import uuid
 import time
@@ -140,9 +141,7 @@ async def underwrite(
             coverage_blocks=json.dumps([c.id for c in request.coverage_selection]),
             premium_monthly=decision.premium_monthly,
             premium_annual=decision.premium_annual,
-            tenant_id="admin@heirs-life.com" if "life" in manual.product_type.lower()
-                      else "admin@heirs-gadget.com" if "gadget" in manual.product_type.lower()
-                      else "admin@heirs-general.com",
+            tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
             partner_id=partner_user.id if partner_user else None,
             manual_id=manual.id
         )
@@ -239,7 +238,7 @@ async def soap_underwrite(
             coverage_blocks=json.dumps([c.id for c in request_obj.coverage_selection]),
             premium_monthly=decision.premium_monthly,
             premium_annual=decision.premium_annual,
-            tenant_id="admin@heirs-life.com",
+            tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
             partner_id=partner_user.id if partner_user else None,
             manual_id=manual.id
         )
@@ -490,9 +489,7 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
                 coverage_blocks="[]",
                 premium_monthly=decision.premium_monthly,
                 premium_annual=decision.premium_annual,
-                tenant_id="admin@heirs-life.com" if "life" in manual.product_type.lower()
-                          else "admin@heirs-gadget.com" if "gadget" in manual.product_type.lower()
-                          else "admin@heirs-general.com",
+                tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
                 manual_id=manual.id
             )
             db.add(new_policy)
@@ -516,15 +513,27 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
         }
 
     elif action == "show_policies":
-        if user and user.role == "partner":
+        if not user:
+            return {"error": "Please sign in to view your policies."}
+
+        if user.role == "partner":
+            # Partners see only policies sold through them; optional email filter
             query = select(Policy).where(Policy.partner_id == user.id)
-        else:
+            email = data.get("holder_email")
+            if email:
+                query = query.where(Policy.holder_email == email)
+        elif user.role in ("admin", "insurer", "compliance_officer"):
+            # Privileged roles: email filter is accepted; no email → tenant-scoped list
             query = select(Policy)
-            
-        email = data.get("holder_email")
-        if email:
-            query = query.where(Policy.holder_email == email)
-            
+            if user.role != "admin":
+                query = query.where(Policy.tenant_id == (user.tenant_id or user.email))
+            email = data.get("holder_email")
+            if email:
+                query = query.where(Policy.holder_email == email)
+        else:
+            # Consumers always see only their own policies — email param ignored
+            query = select(Policy).where(Policy.holder_email == user.email)
+
         result = await db.execute(query.order_by(Policy.bound_at.desc()).limit(15))
         policies = result.scalars().all()
         return {
@@ -631,9 +640,9 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
         }
 
     elif action == "rotate_api_key":
-        if not user:
-            return {"error": "Authentication required to rotate API key."}
-            
+        if not user or user.role != "partner":
+            return {"error": "Only partners can rotate API keys."}
+
         from app.services.auth import generate_api_key
         new_key = generate_api_key()
         user.api_key = new_key
@@ -646,10 +655,29 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
     elif action == "show_widget_code":
         return {
             "widget_code": '''<div id="insurbridge-widget"></div>
-<script src="https://cdn.insurbridge.ai/widget.js" 
-        data-partner-id="YOUR_EMAIL" 
+<script src="https://cdn.insurbridge.ai/widget.js"
+        data-partner-id="YOUR_EMAIL"
         data-key="YOUR_API_KEY">
 </script>'''
+        }
+
+    elif action == "show_tenants":
+        if not user or user.role != "admin":
+            return {"error": "Admin access required."}
+        from app.models.core import UserRole
+        result = await db.execute(
+            select(User).where(User.role == UserRole.INSURER)
+        )
+        insurers = result.scalars().all()
+        return {
+            "tenants": [
+                {
+                    "tenant_id": u.tenant_id,
+                    "company_name": u.company_name,
+                    "email": u.email,
+                }
+                for u in insurers
+            ]
         }
 
     return {}
@@ -687,20 +715,24 @@ async def agentic_chat(
             logger.warning(f"Error decoding JWT in chat: {e}")
 
     llm = get_llm()
-    
+
     start_time = time.time()
     chat_log = ChatLog(
+        session_id=request.session_id,
+        user_email=user.email if user else None,
         role=request.role,
         message=request.message,
         model="gemini-2.0-flash-lite",
         status="pending"
     )
 
-    # Determine real role from token if authenticated, otherwise use requested fallback
+    # Determine real role from token if authenticated.
+    # Unauthenticated requests are always treated as "consumer" regardless of
+    # what request.role claims — prevents role spoofing via the request body.
     if user:
         role = user.role.value if hasattr(user.role, 'value') else str(user.role)
     else:
-        role = request.role
+        role = "consumer"
 
     if role == "admin":
         role_actions = ADMIN_ACTIONS
@@ -714,6 +746,28 @@ async def agentic_chat(
     else:
         role_actions = CONSUMER_ACTIONS
         tone = "friendly, simple, no jargon"
+
+    # If the client didn't send any history but gave a session_id, reconstruct
+    # history from the DB so the conversation survives page refreshes.
+    history_to_use = request.history
+    if not history_to_use and request.session_id:
+        try:
+            prev_logs_result = await db.execute(
+                select(ChatLog)
+                .where(ChatLog.session_id == request.session_id)
+                .order_by(ChatLog.timestamp.asc())
+                .limit(10)
+            )
+            prev_logs = prev_logs_result.scalars().all()
+            if prev_logs:
+                history_to_use = []
+                for log in prev_logs:
+                    if log.message:
+                        history_to_use.append({"role": "user", "content": log.message})
+                    if log.response:
+                        history_to_use.append({"role": "model", "content": log.response})
+        except Exception as e:
+            logger.warning(f"Could not load session history: {e}")
 
     # RAG / Context Injection
     # Try to determine if the user is asking about a specific product type
@@ -741,9 +795,9 @@ async def agentic_chat(
 
     # Build message history
     messages = [SystemMessage(content=system_prompt)]
-    
-    # Add history (last 5 messages to save context window)
-    for msg in request.history[-10:]:
+
+    # Add history (last 10 exchanges to stay within context window)
+    for msg in history_to_use[-10:]:
         content = msg.get("content", "")
         if msg.get("role") == "model" or msg.get("role") == "ai":
              messages.append(AIMessage(content=content))
@@ -808,6 +862,7 @@ async def agentic_chat(
         "suggestions": suggestions,
         "product_matched": action_data.get("product_type"),
         "role": role,
+        "session_id": request.session_id,
     }
 
     # Logging
@@ -823,6 +878,38 @@ async def agentic_chat(
         logger.error(f"Failed to save chat log: {e}")
 
     return response_payload
+
+
+# ============================================================
+#  CHAT HISTORY ENDPOINT
+# ============================================================
+
+@router.get("/chat/history/{session_id}")
+async def get_chat_history(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Retrieve the stored conversation history for a session_id.
+    Returns turns in chronological order as [{role, content}] pairs
+    so the frontend can restore its in-memory history after a refresh.
+    """
+    result = await db.execute(
+        select(ChatLog)
+        .where(ChatLog.session_id == session_id)
+        .order_by(ChatLog.timestamp.asc())
+        .limit(20)
+    )
+    logs = result.scalars().all()
+
+    history = []
+    for log in logs:
+        if log.message:
+            history.append({"role": "user", "content": log.message})
+        if log.response:
+            history.append({"role": "model", "content": log.response})
+
+    return {"session_id": session_id, "history": history}
 
 
 # ============================================================

@@ -68,3 +68,8 @@ class ChatRequest(BaseModel):
     message: str
     role: Literal["consumer", "agent", "partner"] = "consumer"
     history: List[dict] = []  # [{"role": "user/model", "content": "..."}]
+    # Optional UUID string. Generate on the client for the first message in a
+    # conversation and pass the same value for every subsequent turn.  When
+    # provided, the backend uses DB-stored history as a fallback if the client's
+    # in-memory history is empty (e.g. after a page refresh).
+    session_id: Optional[str] = None

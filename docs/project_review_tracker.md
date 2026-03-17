@@ -133,6 +133,8 @@
 | Test  | Re-ran `pytest` on `tests/test_simple.py` and `tests/test_underwriting.py` — **14 passed**        |
 | P2    | Added authenticated `GET /api/v1/policies/my` and replaced D2C chat-based policy history fetch    |
 | Test  | Re-ran `pytest` after policy-history changes — **14 passed**                                      |
+| Sec   | Tightened tenant scoping in `compliance.py` for audit logs, SLA breaches, and manual rule access  |
+| Docs  | Refreshed `docs/project_overview.md` to match implemented state and realistic next milestones     |
 
 ---
 

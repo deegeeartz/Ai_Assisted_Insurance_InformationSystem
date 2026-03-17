@@ -23,13 +23,16 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 from fastapi.middleware.cors import CORSMiddleware
 
-# Configure CORS
-origins = [
+# Always allow localhost dev origins. Production origins come from CORS_ORIGINS env var
+# (comma-separated, e.g. "https://app.insurbridge.ai,https://portal.insurbridge.ai").
+_LOCALHOST_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:3001",
     "http://localhost:3002",
-    "http://localhost:5173", # Vite Dev Server
+    "http://localhost:5173",
 ]
+_extra = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+origins = list(dict.fromkeys(_LOCALHOST_ORIGINS + _extra))  # deduplicate, preserve order
 
 app.add_middleware(
     CORSMiddleware,

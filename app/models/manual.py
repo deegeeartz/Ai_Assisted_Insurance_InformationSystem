@@ -9,6 +9,10 @@ class UnderwritingManual(Base):
     filename = Column(String, index=True)
     version = Column(String, default="v1")
     product_type = Column(String, index=True) # e.g., "Life", "Auto"
+    # Owning insurer tenant. Set at upload time from the uploading user's tenant_id.
+    # Nullable so older rows without the column remain valid; code falls back to
+    # manual_tenant_from_product() when this is None.
+    tenant_id = Column(String, nullable=True, index=True)
     is_active = Column(Boolean, default=True)
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
     
