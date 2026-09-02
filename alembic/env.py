@@ -10,7 +10,8 @@ from alembic import context
 # Import your Base and models here
 from app.db.base import Base
 from app.core.config import settings
-from app.models import core, manual  # Import models to register with Base
+from app.models import core, manual  # noqa: F401
+from app.models import audit, chat_log  # noqa: F401 — register ALL models with Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
