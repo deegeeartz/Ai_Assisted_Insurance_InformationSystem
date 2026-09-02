@@ -50,8 +50,10 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 from fastapi.middleware.cors import CORSMiddleware
 
-# Always allow localhost dev origins. Production origins come from CORS_ORIGINS env var
-# (comma-separated, e.g. "https://app.insurbridge.ai,https://portal.insurbridge.ai").
+# Localhost dev origins are only allowed outside production. Production origins
+# come from CORS_ORIGINS env var (comma-separated, e.g.
+# "https://app.insurbridge.ai,https://portal.insurbridge.ai").
+_IS_DEV = settings.ENVIRONMENT.lower() in ("development", "dev", "local")
 _LOCALHOST_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:3001",
@@ -59,7 +61,14 @@ _LOCALHOST_ORIGINS = [
     "http://localhost:5173",
 ]
 _extra = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
-origins = list(dict.fromkeys(_LOCALHOST_ORIGINS + _extra))  # deduplicate, preserve order
+origins = list(dict.fromkeys((_LOCALHOST_ORIGINS if _IS_DEV else []) + _extra))  # deduplicate, preserve order
+
+if not origins:
+    logger.warning(
+        "No CORS origins configured (ENVIRONMENT=%s, CORS_ORIGINS empty). "
+        "Browser frontends will be blocked until CORS_ORIGINS is set.",
+        settings.ENVIRONMENT,
+    )
 
 app.add_middleware(
     CORSMiddleware,

@@ -54,6 +54,12 @@ async def get_partner_dashboard(
     # Sort transactions by date desc
     recent_transactions.sort(key=lambda x: x['date'], reverse=True)
 
+    api_key = current_user.api_key or ""
+    if api_key:
+        # Never return the full key in routine reads; the portal shows the full
+        # key only once, in the response of POST /partners/api-key/rotate.
+        api_key = f"{api_key[:8]}...{api_key[-4:]}" if len(api_key) > 16 else f"{api_key[:4]}..."
+
     return {
         "metrics": {
             "total_policies_sold": total_policies,
@@ -61,7 +67,7 @@ async def get_partner_dashboard(
             "currency": "NGN"
         },
         "recent_transactions": recent_transactions[:10],
-        "api_key": current_user.api_key  # For display in portal
+        "api_key": api_key  # Masked — for display in portal
     }
 
 @router.post("/api-key/rotate")

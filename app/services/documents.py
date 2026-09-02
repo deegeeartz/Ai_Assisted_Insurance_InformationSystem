@@ -2,12 +2,33 @@ from docx import Document
 from docx.shared import Pt, Inches
 from fpdf import FPDF
 from datetime import datetime
+import hashlib
+import hmac
 import json
 import io
 import os
 
 OUTPUT_DIR = "generated_docs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+def generate_key_facts_token(policy_number: str) -> str:
+    """Short HMAC token that authorizes a guest (unauthenticated) download of
+    one policy's Key Facts document. Derived from the policy number and the
+    JWT secret, so it cannot be guessed from the policy number alone."""
+    from app.core.config import settings
+
+    return hmac.new(
+        settings.jwt_secret_key.encode(),
+        policy_number.encode(),
+        hashlib.sha256,
+    ).hexdigest()[:16]
+
+
+def verify_key_facts_token(policy_number: str, token: str) -> bool:
+    import hmac as _hmac
+
+    return _hmac.compare_digest(token, generate_key_facts_token(policy_number))
 
 
 def generate_key_facts_pdf(

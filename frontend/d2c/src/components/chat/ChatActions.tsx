@@ -103,9 +103,9 @@ export function ChatActions({ action, data, onSuggestionClick }: ChatActionsProp
             {payResult.status === 'success' ? (
               <>
                 <p>✅ {payResult.message} Ref: {payResult.gateway_reference}</p>
-                <a 
-                  href={`${import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'}/documents/key-facts/${q.policy_number}?format=pdf`}
-                  target="_blank" 
+                <a
+                  href={`${import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'}/documents/key-facts/${q.policy_number}?format=pdf${q.key_facts_token ? `&token=${q.key_facts_token}` : ''}`}
+                  target="_blank"
                   rel="noreferrer"
                   className="mt-2 flex items-center justify-center gap-1.5 py-1.5 bg-green-600/50 hover:bg-green-600 rounded text-white font-medium transition-colors"
                 >
@@ -192,9 +192,9 @@ export function ChatActions({ action, data, onSuggestionClick }: ChatActionsProp
             {payResult.status === 'success' ? (
               <>
                 <p>✅ {payResult.message}</p>
-                <a 
-                  href={`${import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'}/documents/key-facts/${pm.policy_number}?format=pdf`}
-                  target="_blank" 
+                <a
+                  href={`${import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'}/documents/key-facts/${pm.policy_number}?format=pdf${pm.key_facts_token ? `&token=${pm.key_facts_token}` : ''}`}
+                  target="_blank"
                   rel="noreferrer"
                   className="mt-2 flex items-center justify-center gap-1.5 py-1.5 bg-green-600/50 hover:bg-green-600 rounded text-white font-medium transition-colors"
                 >

@@ -7,12 +7,13 @@ from app.schemas.underwrite import UnderwriteRequest, UnderwriteDecision, ChatRe
 from app.services.underwriting import route_to_product, execute_underwriting
 from app.services.protocol_adapter import create_soap_response
 from app.services.policy_number import generate_policy_number
-from app.services.auth import get_user_by_api_key, get_current_user
+from app.services.auth import get_user_by_api_key, get_current_user, get_current_user_optional
 from app.models.core import Policy, Payment, User
 from app.models.chat_log import ChatLog
 from app.models.audit import AuditLog, UnderwritingDecisionLog
 from app.services.sla import record_policy_sla_event
 from app.services.tenant import policy_tenant_from_product
+from app.services.documents import generate_key_facts_token
 import json
 import uuid
 import time
@@ -46,6 +47,14 @@ def normalize_content(content):
 router = APIRouter()
 
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
+
+
+async def kill_switch_active(db: AsyncSession) -> bool:
+    """True when a superadmin has enabled the global emergency halt."""
+    from app.models.core import PlatformConfig
+    res = await db.execute(select(PlatformConfig).where(PlatformConfig.key == "kill_switch"))
+    cfg = res.scalars().first()
+    return bool(cfg and cfg.value.lower() == "true")
 
 
 @router.get("/policies/my")
@@ -103,10 +112,7 @@ async def underwrite(
     """
     Universal Polymorphic Underwriting Endpoint.
     """
-    from app.models.core import PlatformConfig
-    k_res = await db.execute(select(PlatformConfig).where(PlatformConfig.key == "kill_switch"))
-    kill_cfg = k_res.scalars().first()
-    if kill_cfg and kill_cfg.value.lower() == "true":
+    if await kill_switch_active(db):
         raise HTTPException(status_code=503, detail="Platform emergency halt. Quoting temporarily disabled by Superadmin.")
 
 
@@ -175,6 +181,7 @@ async def underwrite(
             await record_policy_sla_event(db=db, policy=new_policy, event_type="policy_created")
         except Exception as error:
             logger.warning(f"SLA policy_created metric update skipped: {error}")
+        decision.key_facts_token = generate_key_facts_token(decision.policy_number)
 
     accept_header = http_request.headers.get("accept", "application/json")
     if "soap+xml" in accept_header or "text/xml" in accept_header:
@@ -197,10 +204,7 @@ async def soap_underwrite(
     Dedicated SOAP endpoint that explicitly accepts XML request bodies 
     for legacy bank and enterprise partners.
     """
-    from app.models.core import PlatformConfig
-    k_res = await db.execute(select(PlatformConfig).where(PlatformConfig.key == "kill_switch"))
-    kill_cfg = k_res.scalars().first()
-    if kill_cfg and kill_cfg.value.lower() == "true":
+    if await kill_switch_active(db):
         raise HTTPException(status_code=503, detail="Platform emergency halt. Quoting temporarily disabled by Superadmin.")
 
 
@@ -508,6 +512,9 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
         }
 
     elif action == "start_quote":
+        if await kill_switch_active(db):
+            return {"error": "Quoting is temporarily disabled by the platform superadmin."}
+
         age = data.get("age", 30)
         product_type = data.get("product_type", "life")
         
@@ -582,6 +589,7 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
                 "reason": decision.reason,
                 "summary": decision.plain_english_summary,
                 "policy_number": policy_number,
+                "key_facts_token": generate_key_facts_token(policy_number) if policy_number else None,
                 "product_type": manual.product_type,
             }
         }
@@ -640,6 +648,7 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
                 "amount": policy.premium_annual or (policy.premium_monthly or 0) * 12,
                 "currency": "NGN",
                 "status": policy.status,
+                "key_facts_token": generate_key_facts_token(policy.policy_number),
             }
         }
 
@@ -728,11 +737,11 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
 
     elif action == "show_widget_code":
         return {
-            "widget_code": '''<div id="insurbridge-widget"></div>
-<script src="https://cdn.insurbridge.ai/widget.js"
-        data-partner-id="YOUR_EMAIL"
-        data-key="YOUR_API_KEY">
-</script>'''
+            "widget_code": (
+                "<!-- An embeddable <script> build of the InsurDrop widget is not "
+                "available yet. The widget currently runs standalone at its own "
+                "deployment URL and can be linked or iframed from your site. -->"
+            )
         }
 
     elif action == "show_tenants":
@@ -762,31 +771,17 @@ async def agentic_chat(
     request: ChatRequest,
     http_req: Request,
     db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
 ):
     """
     Agentic chat endpoint. Detects user intent, executes actions, and returns
     structured responses with action cards for the frontend.
     Supports conversation history and context-aware responses.
+    Anonymous (widget/D2C guest) requests are treated as consumers.
     """
     from app.core.llm import get_llm
     from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-    from app.core.config import settings
     from app.services.underwriting import get_all_manuals, route_to_product
-    from jose import jwt
-    from app.services.auth import ALGORITHM
-
-    # Extract user if authenticated
-    user = None
-    auth_header = http_req.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        try:
-            token = auth_header.split(" ")[1]
-            payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[ALGORITHM])
-            email = payload.get("sub")
-            if email:
-                user = (await db.execute(select(User).where(User.email == email))).scalars().first()
-        except Exception as e:
-            logger.warning(f"Error decoding JWT in chat: {e}")
 
     llm = get_llm()
 
@@ -964,11 +959,15 @@ async def agentic_chat(
 async def get_chat_history(
     session_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Retrieve the stored conversation history for a session_id.
     Returns turns in chronological order as [{role, content}] pairs
     so the frontend can restore its in-memory history after a refresh.
+
+    Access: admins, sessions whose turns are all anonymous (pre-login),
+    or the user who owns the session's messages.
     """
     result = await db.execute(
         select(ChatLog)
@@ -977,6 +976,10 @@ async def get_chat_history(
         .limit(20)
     )
     logs = result.scalars().all()
+
+    owner_emails = {log.user_email for log in logs if log.user_email}
+    if str(current_user.role) != "admin" and owner_emails and current_user.email not in owner_emails:
+        raise HTTPException(status_code=403, detail="Not authorized to view this conversation")
 
     history = []
     for log in logs:

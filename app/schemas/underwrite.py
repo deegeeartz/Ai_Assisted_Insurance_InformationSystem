@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 from datetime import datetime
 
@@ -53,8 +53,9 @@ class UnderwriteDecision(BaseModel):
     plain_english_summary: str  # Consumer-friendly explanation
     agent_notes: Optional[str] = None  # Only populated for role=agent
     policy_number: Optional[str] = None
+    key_facts_token: Optional[str] = None  # HMAC token for guest document download
     sla_commitments: dict = {}
-    timestamp: datetime = datetime.now()
+    timestamp: datetime = Field(default_factory=datetime.now)
 
 
 

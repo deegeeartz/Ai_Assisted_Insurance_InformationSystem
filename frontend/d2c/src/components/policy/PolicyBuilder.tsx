@@ -162,7 +162,7 @@ export function PolicyBuilder() {
 
   if (processingStep === 'success') {
       const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
-      const downloadUrl = `${apiBase}/documents/key-facts/${policyResult?.policy_number}?format=pdf`;
+      const downloadUrl = `${apiBase}/documents/key-facts/${policyResult?.policy_number}?format=pdf${policyResult?.key_facts_token ? `&token=${policyResult.key_facts_token}` : ''}`;
 
       return (
           <div className="py-20 container mx-auto px-6 text-center">

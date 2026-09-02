@@ -83,11 +83,12 @@ export function Login() {
           </button>
         </form>
         
-        <div className="mt-6 text-center text-xs text-slate-400">
-          <p>Demo Credentials:</p>
-          <p>partner@example.com / password</p>
-          <p>compliance@example.com / password</p>
-        </div>
+        {import.meta.env.DEV && (
+          <div className="mt-6 text-center text-xs text-slate-400">
+            <p>Demo accounts: partner@example.com · compliance@example.com</p>
+            <p>Password: the seeded demo password (set SEED_DEMO_PASSWORD, or check the backend log at seed time)</p>
+          </div>
+        )}
       </div>
     </div>
   );

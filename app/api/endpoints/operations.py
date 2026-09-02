@@ -8,13 +8,14 @@ from app.schemas.core import (
     PaymentRequest, PaymentResponse,
     SLAResponse, WebhookCreate, WebhookResponse,
 )
-from app.services.auth import get_current_user
+from app.services.auth import get_current_user, get_current_user_optional
 from app.services.payment import process_payment
 from app.services.sla import get_sla_dashboard
 from app.services.documents import (
     generate_key_facts_pdf,
     generate_key_facts_docx,
     generate_sla_report_pdf,
+    verify_key_facts_token,
 )
 from app.services.webhooks import dispatch_webhook, generate_batch_csv
 import json
@@ -163,36 +164,34 @@ async def download_sla_report(
 async def download_key_facts(
     policy_number: str,
     format: str = Query("pdf", pattern="^(pdf|docx)$"),
-    token: str = Query(None, description="HMAC download token for unauthenticated D2C access"),
+    token: str = Query(None, description="HMAC download token for guest (D2C) access"),
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
     """Generate and download a Key Facts document for a specific policy.
-    
-    Access control: requires either a valid JWT (portal users) or a
-    short HMAC token derived from the policy number (D2C consumers).
+
+    Access control: a valid HMAC download token (issued alongside the quote /
+    policy response for guest D2C flows), or an authenticated user. Consumers
+    may only download documents for their own policies.
     """
-    import hashlib, hmac
-    from app.core.config import settings
-
-    # Verify access: either a valid HMAC token or fall through if none provided
-    # The token is HMAC-SHA256(jwt_secret_key, policy_number), hex-encoded.
-    if token:
-        expected = hmac.new(
-            settings.jwt_secret_key.encode(),
-            policy_number.encode(),
-            hashlib.sha256,
-        ).hexdigest()[:16]  # first 16 hex chars is enough for a download guard
-        if not hmac.compare_digest(token, expected):
-            raise HTTPException(status_code=403, detail="Invalid download token")
-    else:
-        # No token provided — treat as unauthenticated and still allow
-        # (backward compat for the hackathon; in production you'd enforce)
-        pass
-
     result = await db.execute(select(Policy).where(Policy.policy_number == policy_number))
     policy = result.scalars().first()
     if not policy:
         raise HTTPException(status_code=404, detail="Policy not found")
+
+    token_valid = bool(token) and verify_key_facts_token(policy_number, token)
+
+    if not token_valid:
+        if current_user is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication or a valid download token is required",
+            )
+        if str(current_user.role) == "consumer" and policy.holder_email != current_user.email:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only download documents for your own policies",
+            )
 
     coverage = json.loads(policy.coverage_blocks) if policy.coverage_blocks else []
     sla_data = await get_sla_dashboard(policy.tenant_id or "", db)
