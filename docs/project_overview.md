@@ -2,7 +2,7 @@
 
 ## What It Aims to Achieve
 
-InsurBridge AI is an **AI-powered insurance infrastructure platform** built for the Heirs Insurance hackathon. The core idea is "**Liquid Logic**" — uploading underwriting manuals (PDF/TXT), having Gemini AI compile them into deterministic JSON rulesets, and then using those rules to make instant underwriting decisions.
+InsurBridge AI is an **AI-powered insurance infrastructure platform** built for the  Insurance hackathon. The core idea is "**Liquid Logic**" — uploading underwriting manuals (PDF/TXT), having Gemini AI compile them into deterministic JSON rulesets, and then using those rules to make instant underwriting decisions.
 
 The platform serves **three user types** through three separate frontends:
 
