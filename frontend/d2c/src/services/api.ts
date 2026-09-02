@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
 // ============================================================
 //  INTERFACES
@@ -116,32 +116,21 @@ export function logout() {
 //  PRODUCTS & PREMIUM
 // ============================================================
 export async function getProducts(): Promise<CoverageBlock[]> {
-  try {
-    const res = await fetch(`${API_URL}/products`);
-    if (!res.ok) throw new Error('Failed to fetch products');
-    const data = await res.json();
-    return data.map((item: any) => ({
-      id: item.id,
-      name: item.name,
-      description: item.description,
-      basePrice: item.base_price,
-      icon: item.icon,
-      insurerName: item.insurer_name || 'Unknown Insurer',
-      category: item.category || 'life'
-    }));
-  } catch (err) {
-    console.error("API Error, falling back to mock", err);
-    return [
-      { id: "life_basic", name: "Life Protection", description: "Lump sum payout to beneficiaries.", basePrice: 5000, icon: "Heart", insurerName: "Heirs Life Assurance", category: "life" },
-      { id: "critical_illness", name: "Critical Illness", description: "Coverage for serious conditions.", basePrice: 3000, icon: "Activity", insurerName: "Heirs Life Assurance", category: "life" },
-      { id: "auto_comprehensive", name: "Auto Comprehensive", description: "Full vehicle coverage.", basePrice: 8000, icon: "Car", insurerName: "Heirs General Insurance", category: "auto" },
-      { id: "gadget_shield", name: "Gadget Shield", description: "Comprehensive device cover.", basePrice: 2500, icon: "Smartphone", insurerName: "Heirs Gadget Insurance", category: "gadget" },
-    ];
-  }
+  const res = await fetch(`${API_URL}/products`);
+  if (!res.ok) throw new Error('Failed to fetch products');
+  const data = await res.json();
+  return data.map((item: any) => ({
+    id: item.id,
+    name: item.name,
+    description: item.description,
+    basePrice: item.base_price,
+    icon: item.icon,
+    insurerName: item.insurer_name || 'Unknown Insurer',
+    category: item.category || 'life'
+  }));
 }
 
 export async function calculatePremium(state: PolicyState): Promise<number> {
-  try {
     const res = await fetch(`${API_URL}/calculate-premium`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -152,12 +141,12 @@ export async function calculatePremium(state: PolicyState): Promise<number> {
         selected_coverage: state.selectedCoverage
       }),
     });
-    if (!res.ok) throw new Error('Failed');
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(err || 'Failed to calculate premium');
+    }
     const data = await res.json();
     return data.premium;
-  } catch {
-    return 0;
-  }
 }
 
 export async function getProductSchema(productType: string): Promise<any> {

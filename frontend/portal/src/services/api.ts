@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
 export async function login(email: string, password: string) {
   const res = await fetch(`${API_URL}/auth/login`, {
@@ -43,6 +43,7 @@ export async function rotateApiKey(token: string) {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` }
   });
+  if (!res.ok) throw new Error('Failed to rotate API key');
   return res.json();
 }
 

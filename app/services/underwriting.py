@@ -239,3 +239,66 @@ async def execute_underwriting(
         sla_commitments=data.get("sla_commitments", {}),
         timestamp=datetime.now(),
     )
+
+
+async def bind_policy_from_decision(
+    decision: UnderwriteDecision,
+    request: UnderwriteRequest,
+    manual: UnderwritingManual,
+    db: AsyncSession,
+    channel: str,
+    partner_id: int | None = None
+):
+    from app.services.policy_number import generate_policy_number
+    from app.services.tenant import policy_tenant_from_product
+    from app.models.audit import UnderwritingDecisionLog
+    from app.models.core import Policy
+    from datetime import datetime, timedelta
+
+    if decision.status == "approved":
+        decision.policy_number = await generate_policy_number(manual.product_type)
+
+    holder_name = request.holder_name or f"Anonymous Applicant ({request.age})"
+    tenant_id = manual.tenant_id or policy_tenant_from_product(manual.product_type)
+    
+    decision_log = UnderwritingDecisionLog(
+        product_type=manual.product_type,
+        tenant_id=tenant_id,
+        applicant_age=request.age,
+        applicant_name=holder_name,
+        applicant_email=request.holder_email,
+        status=decision.status,
+        reason=decision.reason,
+        premium_monthly=str(decision.premium_monthly) if decision.premium_monthly else None,
+        premium_annual=str(decision.premium_annual) if decision.premium_annual else None,
+        policy_number=decision.policy_number,
+        channel=channel,
+        partner_id=partner_id,
+    )
+    db.add(decision_log)
+
+    new_policy = None
+    if decision.status == "approved":
+        coverage_blocks = []
+        if hasattr(request, "coverage_selection") and request.coverage_selection:
+            coverage_blocks = [c.id for c in request.coverage_selection]
+            
+        new_policy = Policy(
+            policy_number=decision.policy_number,
+            product_type=manual.product_type,
+            status="pending_payment",
+            holder_name=holder_name,
+            holder_email=request.holder_email,
+            holder_age=request.age,
+            coverage_blocks=json.dumps(coverage_blocks),
+            premium_monthly=decision.premium_monthly,
+            premium_annual=decision.premium_annual,
+            tenant_id=tenant_id,
+            partner_id=partner_id,
+            manual_id=manual.id,
+            expires_at=datetime.utcnow() + timedelta(hours=24)
+        )
+        db.add(new_policy)
+        
+    return decision_log, new_policy
+

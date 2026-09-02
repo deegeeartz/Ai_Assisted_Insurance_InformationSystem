@@ -121,7 +121,6 @@ async def batch_underwrite(
 
     from app.schemas.underwrite import UnderwriteRequest
     from app.services.underwriting import route_to_product, execute_underwriting
-    from app.services.policy_number import generate_policy_number
 
     results = {
         "total_rows": 0,
@@ -149,7 +148,7 @@ async def batch_underwrite(
             if cov_str:
                 try:
                     req.coverage_selection = json.loads(cov_str.replace("'", '"'))
-                except:
+                except (json.JSONDecodeError, TypeError, ValueError):
                     # Fallback to empty if bad valid json in csv
                     pass
 
@@ -162,49 +161,27 @@ async def batch_underwrite(
             from app.services.tenant import policy_tenant_from_product
             decision = await execute_underwriting(req, manual)
 
-            policy_number = None
-            if decision.status == "approved":
-                policy_number = generate_policy_number(manual.product_type)
 
-            # Log the decision regardless of outcome (Fix #5)
-            decision_log = UnderwritingDecisionLog(
-                product_type=manual.product_type,
-                tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
-                applicant_age=req.age,
-                applicant_name=req.holder_name,
-                applicant_email=req.holder_email,
-                status=decision.status,
-                reason=decision.reason,
-                premium_monthly=str(decision.premium_monthly) if decision.premium_monthly else None,
-                premium_annual=str(decision.premium_annual) if decision.premium_annual else None,
-                policy_number=policy_number,
+
+            from app.services.underwriting import bind_policy_from_decision
+            
+            decision_log, new_policy = await bind_policy_from_decision(
+                decision=decision,
+                request=req,
+                manual=manual,
+                db=db,
                 channel="batch",
-                partner_id=current_user.id,
+                partner_id=current_user.id
             )
-            db.add(decision_log)
+            # The partner API currently waits until all rows are processed,
+            # but db is scoped to the request. We don't commit per row, just let the router commit at the end?
+            # Actually, batch processing should probably wait to commit. We just don't commit here.
+            # But bind_policy_from_decision does db.add.
 
-            if decision.status == "approved":
-                from datetime import datetime, timedelta
-                
-                new_policy = Policy(
-                    policy_number=policy_number,
-                    product_type=manual.product_type,
-                    status="pending_payment",
-                    holder_name=req.holder_name,
-                    holder_email=req.holder_email,
-                    holder_age=req.age,
-                    coverage_blocks=json.dumps([c.id for c in req.coverage_selection]),
-                    premium_monthly=decision.premium_monthly,
-                    premium_annual=decision.premium_annual,
-                    tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
-                    partner_id=current_user.id,
-                    manual_id=manual.id,
-                    expires_at=datetime.utcnow() + timedelta(hours=24)
-                )
-                db.add(new_policy)
+            if new_policy:
                 results["approved"] += 1
                 results["total_premium"] += (decision.premium_annual or 0.0)
-                results["logs"].append(f"Row {results['total_rows']}: Approved -> {policy_number}")
+                results["logs"].append(f"Row {results['total_rows']}: Approved -> {new_policy.policy_number}")
             else:
                 results["declined"] += 1
                 results["logs"].append(f"Row {results['total_rows']}: Declined -> {decision.reason}")

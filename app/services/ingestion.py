@@ -98,7 +98,7 @@ async def process_manual_ingestion(manual_id: int, db: AsyncSession):
         """
         
         try:
-            response = llm.invoke([HumanMessage(content=prompt)])
+            response = await llm.ainvoke([HumanMessage(content=prompt)])
             raw = normalize_llm_content(response.content)
             compiled_json = raw.replace("```json", "").replace("```", "").strip()
             

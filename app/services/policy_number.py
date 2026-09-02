@@ -1,4 +1,4 @@
-import redis
+import redis.asyncio as redis
 import os
 from datetime import datetime
 
@@ -7,7 +7,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 
-def generate_policy_number(
+async def generate_policy_number(
     product_type: str,
     prefix: str = "IB",
     sequence_length: int = 6,
@@ -23,7 +23,7 @@ def generate_policy_number(
     start_time = datetime.now() 
     # Try to get custom prefix, with a short timeout/fallback if Redis is slow (though strictly redis is fast)
     try:
-        custom_prefix = redis_client.get(config_key)
+        custom_prefix = await redis_client.get(config_key)
         if custom_prefix:
             prefix = custom_prefix
     except Exception:
@@ -33,7 +33,7 @@ def generate_policy_number(
     counter_key = f"policy_seq:{prefix}:{product_type}:{year}"
 
     # Redis INCR is atomic - safe for concurrent requests
-    seq = redis_client.incr(counter_key)
+    seq = await redis_client.incr(counter_key)
 
     # Format with zero-padding
     seq_str = str(seq).zfill(sequence_length)

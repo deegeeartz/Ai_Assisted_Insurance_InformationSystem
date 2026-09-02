@@ -135,48 +135,18 @@ async def underwrite(
     if api_key:
         partner_user = await get_user_by_api_key(api_key, db)
 
-    if decision.status == "approved":
-        decision.policy_number = generate_policy_number(manual.product_type)
-
-    # Log the decision regardless of outcome (Fix #5)
-    decision_log = UnderwritingDecisionLog(
-        product_type=manual.product_type,
-        tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
-        applicant_age=request.age,
-        applicant_name=request.holder_name or f"Anonymous Applicant ({request.age})",
-        applicant_email=request.holder_email,
-        status=decision.status,
-        reason=decision.reason,
-        premium_monthly=str(decision.premium_monthly) if decision.premium_monthly else None,
-        premium_annual=str(decision.premium_annual) if decision.premium_annual else None,
-        policy_number=decision.policy_number,
+    decision_log, new_policy = await bind_policy_from_decision(
+        decision=decision,
+        request=request,
+        manual=manual,
+        db=db,
         channel="d2c",
-        partner_id=partner_user.id if partner_user else None,
+        partner_id=partner_user.id if partner_user else None
     )
-    db.add(decision_log)
+    
     await db.commit()
-
-    if decision.status == "approved":
-        from datetime import datetime, timedelta
-        
-        new_policy = Policy(
-            policy_number=decision.policy_number,
-            product_type=manual.product_type,
-            status="pending_payment",
-            holder_name=request.holder_name or f"Anonymous Applicant ({request.age})",
-            holder_email=request.holder_email,
-            holder_age=request.age,
-            coverage_blocks=json.dumps([c.id for c in request.coverage_selection]),
-            premium_monthly=decision.premium_monthly,
-            premium_annual=decision.premium_annual,
-            tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
-            partner_id=partner_user.id if partner_user else None,
-            manual_id=manual.id,
-            expires_at=datetime.utcnow() + timedelta(hours=24)
-        )
-        db.add(new_policy)
-        await db.commit()
-        await db.refresh(new_policy)
+    
+    if new_policy:
         try:
             await record_policy_sla_event(db=db, policy=new_policy, event_type="policy_created")
         except Exception as error:
@@ -253,48 +223,17 @@ async def soap_underwrite(
     if api_key:
         partner_user = await get_user_by_api_key(api_key, db)
 
-    if decision.status == "approved":
-        decision.policy_number = generate_policy_number(manual.product_type)
-
-    # Log the decision regardless of outcome (Fix #5)
-    decision_log = UnderwritingDecisionLog(
-        product_type=manual.product_type,
-        tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
-        applicant_age=request_obj.age,
-        applicant_name=request_obj.holder_name or f"Anonymous Applicant ({request_obj.age})",
-        applicant_email=request_obj.holder_email,
-        status=decision.status,
-        reason=decision.reason,
-        premium_monthly=str(decision.premium_monthly) if decision.premium_monthly else None,
-        premium_annual=str(decision.premium_annual) if decision.premium_annual else None,
-        policy_number=decision.policy_number,
+    decision_log, new_policy = await bind_policy_from_decision(
+        decision=decision,
+        request=request_obj,
+        manual=manual,
+        db=db,
         channel="soap",
-        partner_id=partner_user.id if partner_user else None,
+        partner_id=partner_user.id if partner_user else None
     )
-    db.add(decision_log)
     await db.commit()
 
-    if decision.status == "approved":
-        from datetime import datetime, timedelta
-        
-        new_policy = Policy(
-            policy_number=decision.policy_number,
-            product_type=manual.product_type,
-            status="pending_payment",
-            holder_name=request_obj.holder_name or f"Anonymous Applicant ({request_obj.age})",
-            holder_email=request_obj.holder_email,
-            holder_age=request_obj.age,
-            coverage_blocks=json.dumps([c.id for c in request_obj.coverage_selection]),
-            premium_monthly=decision.premium_monthly,
-            premium_annual=decision.premium_annual,
-            tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
-            partner_id=partner_user.id if partner_user else None,
-            manual_id=manual.id,
-            expires_at=datetime.utcnow() + timedelta(hours=24)
-        )
-        db.add(new_policy)
-        await db.commit()
-        await db.refresh(new_policy)
+    if new_policy:
         try:
             await record_policy_sla_event(db=db, policy=new_policy, event_type="policy_created")
         except Exception as error:
@@ -518,7 +457,7 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
         age = data.get("age", 30)
         product_type = data.get("product_type", "life")
         
-        request = UnderwriteRequest(
+        req = UnderwriteRequest(
             age=age,
             product_type=product_type,
             role=role,
@@ -526,56 +465,23 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
             natural_language_query=data.get("details", ""),
             coverage_selection=[]
         )
-        manual = await route_to_product(request, db)
+        manual = await route_to_product(req, db)
         if not manual or not manual.compiled_rules:
             return {"error": f"Product '{product_type}' not found or not ready."}
 
-        decision = await execute_underwriting(request, manual)
+        decision = await execute_underwriting(req, manual)
 
-        # If approved, create policy
-        policy_number = None
-        if decision.status == "approved":
-            policy_number = generate_policy_number(manual.product_type)
-            decision.policy_number = policy_number
-
-        # Log the decision regardless of outcome (Fix #5)
-        decision_log = UnderwritingDecisionLog(
-            product_type=manual.product_type,
-            tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
-            applicant_age=age,
-            applicant_name=data.get("holder_name", f"Chat User ({age})"),
-            applicant_email=data.get("holder_email"),
-            status=decision.status,
-            reason=decision.reason,
-            premium_monthly=str(decision.premium_monthly) if decision.premium_monthly else None,
-            premium_annual=str(decision.premium_annual) if decision.premium_annual else None,
-            policy_number=policy_number,
+        decision_log, new_policy = await bind_policy_from_decision(
+            decision=decision,
+            request=req,
+            manual=manual,
+            db=db,
             channel="chat",
-            partner_id=user.id if user and user.role == "partner" else None,
+            partner_id=user.id if user and user.role == "partner" else None
         )
-        db.add(decision_log)
         await db.commit()
 
-        if decision.status == "approved":
-            from datetime import datetime, timedelta
-            
-            new_policy = Policy(
-                policy_number=policy_number,
-                product_type=manual.product_type,
-                status="pending_payment",
-                holder_name=data.get("holder_name", f"Chat User ({age})"),
-                holder_email=data.get("holder_email"),
-                holder_age=age,
-                coverage_blocks="[]",
-                premium_monthly=decision.premium_monthly,
-                premium_annual=decision.premium_annual,
-                tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
-                manual_id=manual.id,
-                expires_at=datetime.utcnow() + timedelta(hours=24)
-            )
-            db.add(new_policy)
-            await db.commit()
-            await db.refresh(new_policy)
+        if new_policy:
             try:
                 await record_policy_sla_event(db=db, policy=new_policy, event_type="policy_created")
             except Exception as error:
@@ -996,92 +902,7 @@ async def get_chat_history(
 # ============================================================
 from app.schemas.underwrite import CoverageBlock, CalculatorRequest
 
-AVAILABLE_PRODUCTS = [
-    # ─── Heirs Life Assurance ──────────────────────────────
-    CoverageBlock(
-        id="life_basic",
-        name="Life Protection",
-        description="Lump sum payout to your beneficiaries.",
-        base_price=5000.0,
-        icon="Heart",
-        insurer_name="Heirs Life Assurance",
-        category="life"
-    ),
-    CoverageBlock(
-        id="critical_illness",
-        name="Critical Illness",
-        description="Coverage for cancer, stroke, and heart attack.",
-        base_price=3000.0,
-        icon="Activity",
-        insurer_name="Heirs Life Assurance",
-        category="life"
-    ),
-    CoverageBlock(
-        id="funeral_cover",
-        name="Funeral Expenses",
-        description="Immediate cash for funeral costs.",
-        base_price=1000.0,
-        icon="Umbrella",
-        insurer_name="Heirs Life Assurance",
-        category="life"
-    ),
-    # ─── Heirs General Insurance ───────────────────────────
-    CoverageBlock(
-        id="auto_comprehensive",
-        name="Auto Comprehensive",
-        description="Full vehicle coverage including theft, fire & third-party.",
-        base_price=8000.0,
-        icon="Car",
-        insurer_name="Heirs General Insurance",
-        category="auto"
-    ),
-    CoverageBlock(
-        id="auto_third_party",
-        name="Auto Third-Party",
-        description="Mandatory third-party liability for all vehicles.",
-        base_price=3500.0,
-        icon="Shield",
-        insurer_name="Heirs General Insurance",
-        category="auto"
-    ),
-    CoverageBlock(
-        id="home_protection",
-        name="Home Protection",
-        description="Fire, flood, and burglary cover for your property.",
-        base_price=4500.0,
-        icon="Home",
-        insurer_name="Heirs General Insurance",
-        category="home"
-    ),
-    # ─── Heirs Gadget Insurance ────────────────────────────
-    CoverageBlock(
-        id="gadget_shield",
-        name="Gadget Shield",
-        description="Comprehensive device cover: theft, damage & liquid spills.",
-        base_price=2500.0,
-        icon="Smartphone",
-        insurer_name="Heirs Gadget Insurance",
-        category="gadget"
-    ),
-    CoverageBlock(
-        id="screen_protect",
-        name="Screen Protect",
-        description="Accidental screen crack and display replacement.",
-        base_price=1200.0,
-        icon="Monitor",
-        insurer_name="Heirs Gadget Insurance",
-        category="gadget"
-    ),
-    CoverageBlock(
-        id="extended_warranty",
-        name="Extended Warranty",
-        description="Manufacturer warranty extension up to 3 additional years.",
-        base_price=1800.0,
-        icon="Clock",
-        insurer_name="Heirs Gadget Insurance",
-        category="gadget"
-    ),
-]
+from app.core.products import AVAILABLE_PRODUCTS
 
 @router.get("/products")
 async def get_products():

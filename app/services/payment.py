@@ -36,7 +36,7 @@ async def process_payment(
     from app.models.core import PlatformConfig
     c_res = await db.execute(select(PlatformConfig).where(PlatformConfig.key == "global_commission_rate"))
     c_cfg = c_res.scalars().first()
-    partner_rate = float(c_cfg.value) if c_cfg else 0.10
+    partner_rate = float(c_cfg.value) if c_cfg else DEFAULT_PARTNER_COMMISSION_RATE
 
     # Calculate splits
     partner_commission = amount * partner_rate if policy.partner_id else 0.0

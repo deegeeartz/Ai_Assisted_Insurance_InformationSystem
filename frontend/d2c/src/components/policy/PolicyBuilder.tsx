@@ -24,7 +24,9 @@ export function PolicyBuilder() {
 
   // Fetch products on mount
   useEffect(() => {
-    getProducts().then(setProducts);
+    getProducts()
+      .then(setProducts)
+      .catch(err => setErrorMessage(err.message || "Failed to load products."));
 
     // Listen for ChatBot product selection
     const handleProductSelect = (e: any) => {
@@ -53,8 +55,14 @@ export function PolicyBuilder() {
   useEffect(() => {
     const updatePremium = async () => {
       setLoading(true);
-      const premium = await calculatePremium(state);
-      setState(s => ({ ...s, estimatedPremium: premium }));
+      setErrorMessage('');
+      try {
+        const premium = await calculatePremium(state);
+        setState(s => ({ ...s, estimatedPremium: premium }));
+      } catch (err: any) {
+        setState(s => ({ ...s, estimatedPremium: 0 }));
+        setErrorMessage(err.message || 'Failed to calculate premium');
+      }
       setLoading(false);
     };
     const timer = setTimeout(updatePremium, 500);
@@ -161,7 +169,7 @@ export function PolicyBuilder() {
   };
 
   if (processingStep === 'success') {
-      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+      const apiBase = API_URL;
       const downloadUrl = `${apiBase}/documents/key-facts/${policyResult?.policy_number}?format=pdf${policyResult?.key_facts_token ? `&token=${policyResult.key_facts_token}` : ''}`;
 
       return (
