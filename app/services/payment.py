@@ -32,9 +32,15 @@ async def process_payment(
     if not policy:
         raise ValueError(f"Policy {policy_number} not found")
 
+    # Fetch global commission config
+    from app.models.core import PlatformConfig
+    c_res = await db.execute(select(PlatformConfig).where(PlatformConfig.key == "global_commission_rate"))
+    c_cfg = c_res.scalars().first()
+    partner_rate = float(c_cfg.value) if c_cfg else 0.10
+
     # Calculate splits
-    partner_commission = amount * DEFAULT_PARTNER_COMMISSION_RATE if policy.partner_id else 0.0
-    platform_fee = amount * DEFAULT_PLATFORM_FEE_RATE
+    partner_commission = amount * partner_rate if policy.partner_id else 0.0
+    platform_fee = amount * 0.05
     insurer_share = amount - partner_commission - platform_fee
 
     # In production: call Paystack/Stripe API here
@@ -55,6 +61,15 @@ async def process_payment(
 
     db.add(payment)
     policy.status = "active"
+    
+    from app.models.audit import AuditLog
+    db.add(AuditLog(
+        action="process_payment",
+        resource_type="policy",
+        resource_id=policy.policy_number,
+        details=f"amount: {amount} {currency}, gateway: {gateway}",
+    ))
+
     await db.commit()
     await db.refresh(payment)
     await db.refresh(policy)

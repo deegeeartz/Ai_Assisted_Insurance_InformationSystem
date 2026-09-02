@@ -17,6 +17,16 @@ router = APIRouter()
 
 @router.post("/register", response_model=UserResponse)
 async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
+    # Restrict self-registration to safe roles only.
+    # Privileged roles (insurer, admin, compliance_officer) must be created
+    # by a superadmin or seeded at startup.
+    ALLOWED_SELF_REGISTER_ROLES = {"consumer", "partner"}
+    if user_data.role not in ALLOWED_SELF_REGISTER_ROLES:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Self-registration is not allowed for role '{user_data.role}'. Contact an administrator.",
+        )
+
     # Check if email already exists
     result = await db.execute(select(User).where(User.email == user_data.email))
     if result.scalars().first():
@@ -40,6 +50,16 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
         db_user.tenant_id = user_data.email  # Use email as tenant_id for simplicity
 
     db.add(db_user)
+    
+    from app.models.audit import AuditLog
+    db.add(AuditLog(
+        user_email=db_user.email,
+        action="register",
+        resource_type="user",
+        resource_id=db_user.email,
+        details=f"role: {db_user.role}",
+    ))
+
     await db.commit()
     await db.refresh(db_user)
     return db_user
@@ -59,6 +79,16 @@ async def login(login_data: LoginRequest, db: AsyncSession = Depends(get_db)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
         )
+
+    from app.models.audit import AuditLog
+    db.add(AuditLog(
+        user_id=user.id,
+        user_email=user.email,
+        action="login",
+        resource_type="user",
+        resource_id=user.email,
+    ))
+    await db.commit()
 
     access_token = create_access_token(data={"sub": user.email, "role": user.role})
     return Token(access_token=access_token, role=user.role)

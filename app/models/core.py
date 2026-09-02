@@ -31,6 +31,10 @@ class User(Base):
     # API Key for headless integrations (partners/banks)
     api_key = Column(String, unique=True, nullable=True, index=True)
 
+    @property
+    def active_tenant_id(self) -> str:
+        return self.tenant_id or self.email
+
 
 class Policy(Base):
     __tablename__ = "policies"

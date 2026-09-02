@@ -4,6 +4,7 @@ from sqlalchemy import select
 from app.db.session import get_db
 from app.services.auth import get_current_user
 from app.models.core import User, Policy, Payment, UserRole
+from app.models.audit import AuditLog, UnderwritingDecisionLog
 import csv
 import io
 import json
@@ -75,6 +76,15 @@ async def rotate_api_key(
     import secrets
     new_key = f"ib_sk_{secrets.token_urlsafe(32)}"
     current_user.api_key = new_key
+    
+    db.add(AuditLog(
+        user_id=current_user.id,
+        user_email=current_user.email,
+        action="rotate_api_key",
+        resource_type="user",
+        resource_id=current_user.email,
+    ))
+
     await db.commit()
     
     return {"api_key": new_key}
@@ -143,10 +153,32 @@ async def batch_underwrite(
                 results["logs"].append(f"Row {results['total_rows']}: Product '{req.product_type}' not found.")
                 continue
 
+            from app.services.tenant import policy_tenant_from_product
             decision = await execute_underwriting(req, manual)
 
+            policy_number = None
             if decision.status == "approved":
                 policy_number = generate_policy_number(manual.product_type)
+
+            # Log the decision regardless of outcome (Fix #5)
+            decision_log = UnderwritingDecisionLog(
+                product_type=manual.product_type,
+                tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
+                applicant_age=req.age,
+                applicant_name=req.holder_name,
+                applicant_email=req.holder_email,
+                status=decision.status,
+                reason=decision.reason,
+                premium_monthly=str(decision.premium_monthly) if decision.premium_monthly else None,
+                premium_annual=str(decision.premium_annual) if decision.premium_annual else None,
+                policy_number=policy_number,
+                channel="batch",
+                partner_id=current_user.id,
+            )
+            db.add(decision_log)
+
+            if decision.status == "approved":
+                from datetime import datetime, timedelta
                 
                 new_policy = Policy(
                     policy_number=policy_number,
@@ -158,9 +190,10 @@ async def batch_underwrite(
                     coverage_blocks=json.dumps([c.id for c in req.coverage_selection]),
                     premium_monthly=decision.premium_monthly,
                     premium_annual=decision.premium_annual,
-                    tenant_id="admin@heirs-life.com",
+                    tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
                     partner_id=current_user.id,
-                    manual_id=manual.id
+                    manual_id=manual.id,
+                    expires_at=datetime.utcnow() + timedelta(hours=24)
                 )
                 db.add(new_policy)
                 results["approved"] += 1
@@ -173,6 +206,15 @@ async def batch_underwrite(
         except Exception as e:
             results["failed"] += 1
             results["logs"].append(f"Row {results['total_rows']}: Error -> {str(e)}")
+
+    db.add(AuditLog(
+        user_id=current_user.id,
+        user_email=current_user.email,
+        action="batch_underwrite",
+        resource_type="batch_job",
+        resource_id=file.filename,
+        details=f"rows: {results['total_rows']}, approved: {results['approved']}, declined: {results['declined']}",
+    ))
 
     await db.commit()
     return results

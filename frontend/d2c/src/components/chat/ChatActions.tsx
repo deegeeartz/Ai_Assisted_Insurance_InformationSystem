@@ -101,7 +101,17 @@ export function ChatActions({ action, data, onSuggestionClick }: ChatActionsProp
         {payResult && (
           <div className={`mt-2 p-2 rounded-lg text-xs ${payResult.status === 'success' ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
             {payResult.status === 'success' ? (
-              <>✅ {payResult.message} Ref: {payResult.gateway_reference}</>
+              <>
+                <p>✅ {payResult.message} Ref: {payResult.gateway_reference}</p>
+                <a 
+                  href={`${import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'}/documents/key-facts/${q.policy_number}?format=pdf`}
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="mt-2 flex items-center justify-center gap-1.5 py-1.5 bg-green-600/50 hover:bg-green-600 rounded text-white font-medium transition-colors"
+                >
+                  <FileText size={14} /> Download Policy Certificate
+                </a>
+              </>
             ) : (
               <>❌ {payResult.message}</>
             )}
@@ -179,7 +189,21 @@ export function ChatActions({ action, data, onSuggestionClick }: ChatActionsProp
           </button>
         ) : (
           <div className={`p-2 rounded-lg text-xs ${payResult.status === 'success' ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
-            {payResult.status === 'success' ? `✅ ${payResult.message}` : `❌ ${payResult.message}`}
+            {payResult.status === 'success' ? (
+              <>
+                <p>✅ {payResult.message}</p>
+                <a 
+                  href={`${import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'}/documents/key-facts/${pm.policy_number}?format=pdf`}
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="mt-2 flex items-center justify-center gap-1.5 py-1.5 bg-green-600/50 hover:bg-green-600 rounded text-white font-medium transition-colors"
+                >
+                  <FileText size={14} /> Download Policy Certificate
+                </a>
+              </>
+            ) : (
+              <>❌ {payResult.message}</>
+            )}
           </div>
         )}
       </div>

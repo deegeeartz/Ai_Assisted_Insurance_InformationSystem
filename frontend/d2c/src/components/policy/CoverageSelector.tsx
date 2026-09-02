@@ -22,9 +22,10 @@ interface Props {
   products: CoverageBlock[];
   selectedIds: string[];
   onToggle: (id: string) => void;
+  onCategorySelect?: (category: string) => void;
 }
 
-export function CoverageSelector({ products, selectedIds, onToggle }: Props) {
+export function CoverageSelector({ products, selectedIds, onToggle, onCategorySelect }: Props) {
   // Extract unique categories (e.g. 'life', 'auto', 'gadget', 'home')
   const categories = Array.from(new Set(products.map(p => p.category || 'life')));
   
@@ -34,6 +35,13 @@ export function CoverageSelector({ products, selectedIds, onToggle }: Props) {
   const [activeCategory, setActiveCategory] = useState<string>('life');
   const [activeInsurer, setActiveInsurer] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'price_asc' | 'price_desc' | 'name'>('price_asc');
+
+  const handleCategoryClick = (cat: string) => {
+    setActiveCategory(cat);
+    if (onCategorySelect) {
+      onCategorySelect(cat);
+    }
+  };
 
   // Initialize active tab to the first available category if 'life' isn't present
   useEffect(() => {
@@ -66,7 +74,7 @@ export function CoverageSelector({ products, selectedIds, onToggle }: Props) {
         {categories.map(cat => (
           <button
             key={cat}
-            onClick={() => setActiveCategory(cat)}
+            onClick={() => handleCategoryClick(cat)}
             className={clsx(
               "px-5 py-2.5 rounded-xl text-sm font-medium capitalize whitespace-nowrap transition-all duration-200",
               activeCategory === cat

@@ -85,6 +85,16 @@ async def toggle_tenant_status(
         raise HTTPException(status_code=404, detail="Tenant not found")
         
     tenant.is_active = not tenant.is_active
+    
+    from app.models.audit import AuditLog
+    db.add(AuditLog(
+        user_id=admin.id,
+        user_email=admin.email,
+        action="suspend_tenant" if not tenant.is_active else "unsuspend_tenant",
+        resource_type="tenant",
+        resource_id=tenant_id,
+    ))
+
     await db.commit()
     return {"message": f"Tenant {tenant.company_name} active status set to {tenant.is_active}", "is_active": tenant.is_active}
 
@@ -117,6 +127,18 @@ async def update_platform_config(
     if not config:
         raise HTTPException(status_code=404, detail="Config key not found")
     
+    old_value = config.value
     config.value = payload.value
+    
+    from app.models.audit import AuditLog
+    db.add(AuditLog(
+        user_id=admin.id,
+        user_email=admin.email,
+        action="update_config",
+        resource_type="config",
+        resource_id=key,
+        details=f"old_value: {old_value}, new_value: {payload.value}",
+    ))
+
     await db.commit()
     return {"message": f"Config {key} updated", "new_value": config.value}

@@ -37,6 +37,10 @@ async def upload_manual(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Only insurers can upload underwriting manuals
+    if current_user.role != "insurer":
+        raise HTTPException(status_code=403, detail="Only insurer admins can upload underwriting manuals.")
+
     if not (file.filename.endswith(".pdf") or file.filename.endswith(".txt")):
         raise HTTPException(status_code=400, detail="Only PDF and TXT files are allowed.")
 
@@ -64,6 +68,17 @@ async def upload_manual(
         tenant_id=tenant_id,
     )
     db.add(db_manual)
+    
+    from app.models.audit import AuditLog
+    db.add(AuditLog(
+        user_id=current_user.id,
+        user_email=current_user.email,
+        action="upload_manual",
+        resource_type="manual",
+        resource_id=file.filename,
+        details=f"product: {product_type}, tenant: {tenant_id}",
+    ))
+
     await db.commit()
     await db.refresh(db_manual)
 
@@ -74,6 +89,14 @@ async def upload_manual(
 
 
 @router.get("/", response_model=list[ManualResponse])
-async def list_manuals(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(UnderwritingManual))
+async def list_manuals(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    query = select(UnderwritingManual)
+    # Tenant-scope for insurer and compliance roles; admin (superadmin) sees all
+    if current_user.role in ("insurer", "compliance_officer"):
+        query = query.where(UnderwritingManual.tenant_id == (current_user.tenant_id or current_user.email))
+    
+    result = await db.execute(query)
     return result.scalars().all()

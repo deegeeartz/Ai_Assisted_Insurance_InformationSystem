@@ -6,6 +6,8 @@ import { Loader2, ArrowRight, FileDown } from 'lucide-react';
 export function PolicyBuilder() {
   const [products, setProducts] = useState<CoverageBlock[]>([]);
   const [state, setState] = useState<PolicyState>({
+    holderName: '',
+    holderEmail: '',
     age: 30,
     gender: 'female',
     occupation: 'tech',
@@ -62,8 +64,9 @@ export function PolicyBuilder() {
   // Fetch dynamic schema when coverage changes
   useEffect(() => {
     if (state.selectedCoverage.length > 0 && products.length > 0) {
-      // Derive product type from the category of the first selected product
-      const selectedProduct = products.find(p => state.selectedCoverage.includes(p.id));
+      // Derive product type from the last selected product
+      const lastId = state.selectedCoverage[state.selectedCoverage.length - 1];
+      const selectedProduct = products.find(p => p.id === lastId) || products.find(p => state.selectedCoverage.includes(p.id));
       const pt = selectedProduct?.category || 'life';
       
       getProductSchema(pt).then(setSchema).catch(console.error);
@@ -72,19 +75,65 @@ export function PolicyBuilder() {
     }
   }, [state.selectedCoverage, products]);
 
+  const handleCategorySelect = (category: string) => {
+    const matchingProduct = products.find(p => (p.category || 'life') === category);
+    if (matchingProduct) {
+      setState(s => ({
+        ...s,
+        selectedCoverage: [matchingProduct.id],
+        dynamicFields: {}
+      }));
+    }
+  };
+
   const toggleCoverage = (id: string) => {
     setState(prev => {
-      const exists = prev.selectedCoverage.includes(id);
-      const newCoverage = exists 
-        ? prev.selectedCoverage.filter(c => c !== id)
-        : [...prev.selectedCoverage, id];
-      return { ...prev, selectedCoverage: newCoverage };
+      // Single policy purchase mode: selecting an item replaces current selection
+      const isAlreadySelected = prev.selectedCoverage.length === 1 && prev.selectedCoverage[0] === id;
+      return { 
+        ...prev, 
+        selectedCoverage: isAlreadySelected ? [] : [id], 
+        dynamicFields: {} 
+      };
     });
   };
 
   const handlePayment = async () => {
-    setProcessingStep('underwriting');
     setErrorMessage('');
+
+    if (state.selectedCoverage.length === 0) {
+      setErrorMessage('Please select an insurance policy before proceeding to payment.');
+      return;
+    }
+
+    if (!state.holderName || !state.holderName.trim()) {
+      setErrorMessage('Required KYC Missing: Please enter your Full Name.');
+      return;
+    }
+
+    if (!state.holderEmail || !state.holderEmail.trim() || !state.holderEmail.includes('@')) {
+      setErrorMessage('Required KYC Missing: Please enter a valid Email Address.');
+      return;
+    }
+
+    if (!state.age || state.age < 18) {
+      setErrorMessage('Please enter a valid age (minimum 18 years old).');
+      return;
+    }
+
+    // Require all product-specific dynamic fields to be filled before purchase
+    if (schema?.product_specific_fields) {
+      const requiredKeys = Object.keys(schema.product_specific_fields);
+      const missingKeys = requiredKeys.filter(k => !state.dynamicFields?.[k] || !String(state.dynamicFields[k]).trim());
+      
+      if (missingKeys.length > 0) {
+        const formatted = missingKeys.map(k => k.replace(/_/g, ' ')).join(', ');
+        setErrorMessage(`Required Entry Missing: Please fill in ${formatted} before completing purchase.`);
+        return;
+      }
+    }
+
+    setProcessingStep('underwriting');
     try {
         // 1. Get Underwriting Decision
         const decision = await submitUnderwriting(state);
@@ -188,40 +237,76 @@ export function PolicyBuilder() {
               <p className="text-white/60">Customize your coverage blocks like lego.</p>
             </div>
 
-            {/* Basic Inputs (Simplified for Proto) */}
-            <div className="bg-white/5 border border-white/10 rounded-xl p-6 grid grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm text-white/60 mb-2">Your Age</label>
-                <input 
-                  type="number" 
-                  aria-label="Your Age"
-                  value={state.age}
-                  onChange={(e) => setState(s => ({ ...s, age: parseInt(e.target.value) || 0 }))}
-                  className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2 text-white focus:border-blue-500 outline-none transition-colors"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-white/60 mb-2">Gender</label>
-                <select 
-                  aria-label="Gender"
-                  className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2 text-white focus:border-blue-500 outline-none transition-colors"
-                  value={state.gender}
-                  onChange={(e) => setState(s => ({ ...s, gender: e.target.value }))}
-                >
-                  <option value="female">Female</option>
-                  <option value="male">Male</option>
-                </select>
+            {/* Basic KYC Inputs */}
+            <div className="bg-white/5 border border-white/10 rounded-xl p-6 space-y-4">
+              <h3 className="text-white font-semibold">Policyholder KYC Information</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm text-white/60 mb-2 flex items-center justify-between">
+                    <span>Full Name</span>
+                    <span className="text-red-400 text-xs font-semibold">Required *</span>
+                  </label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. Jane Doe"
+                    value={state.holderName || ''}
+                    onChange={(e) => setState(s => ({ ...s, holderName: e.target.value }))}
+                    className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2 text-white focus:border-blue-500 outline-none transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-white/60 mb-2 flex items-center justify-between">
+                    <span>Email Address</span>
+                    <span className="text-red-400 text-xs font-semibold">Required *</span>
+                  </label>
+                  <input 
+                    type="email" 
+                    placeholder="e.g. jane.doe@example.com"
+                    value={state.holderEmail || ''}
+                    onChange={(e) => setState(s => ({ ...s, holderEmail: e.target.value }))}
+                    className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2 text-white focus:border-blue-500 outline-none transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-white/60 mb-2 flex items-center justify-between">
+                    <span>Your Age</span>
+                    <span className="text-red-400 text-xs font-semibold">Required *</span>
+                  </label>
+                  <input 
+                    type="number" 
+                    aria-label="Your Age"
+                    value={state.age}
+                    onChange={(e) => setState(s => ({ ...s, age: parseInt(e.target.value) || 0 }))}
+                    className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2 text-white focus:border-blue-500 outline-none transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-white/60 mb-2">Gender</label>
+                  <select 
+                    aria-label="Gender"
+                    className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2 text-white focus:border-blue-500 outline-none transition-colors cursor-pointer"
+                    value={state.gender}
+                    onChange={(e) => setState(s => ({ ...s, gender: e.target.value }))}
+                    style={{ backgroundColor: 'hsl(220 30% 12%)' }}
+                  >
+                    <option value="female">Female</option>
+                    <option value="male">Male</option>
+                  </select>
+                </div>
               </div>
             </div>
 
             {/* Dynamic Schema Inputs */}
             {schema && schema.product_specific_fields && Object.keys(schema.product_specific_fields).length > 0 && (
                 <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-                    <h3 className="text-white font-semibold mb-4 capitalize">{schema.product} Specific Requirements</h3>
+                    <h3 className="text-white font-semibold mb-4 capitalize">{schema.product} Required Information</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {Object.entries(schema.product_specific_fields).map(([key, desc]: [string, any]) => (
                             <div key={key}>
-                                <label className="block text-sm text-white/60 mb-2 capitalize">{key.replace(/_/g, ' ')}</label>
+                                <label className="block text-sm text-white/60 mb-2 capitalize flex items-center justify-between">
+                                  <span>{key.replace(/_/g, ' ')}</span>
+                                  <span className="text-red-400 text-xs font-semibold">Required *</span>
+                                </label>
                                 <input 
                                     type={desc.includes('integer') || desc.includes('number') ? 'number' : 'text'}
                                     placeholder={desc}
@@ -242,6 +327,7 @@ export function PolicyBuilder() {
               products={products}
               selectedIds={state.selectedCoverage}
               onToggle={toggleCoverage}
+              onCategorySelect={handleCategorySelect}
             />
           </div>
 

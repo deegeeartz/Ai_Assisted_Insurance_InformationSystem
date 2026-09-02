@@ -21,11 +21,11 @@ def get_llm():
         from langchain_google_genai import ChatGoogleGenerativeAI
 
         _llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash-lite",
+            model="gemini-3.6-flash",
             temperature=0.1,
             google_api_key=api_key,
         )
-        logger.info("LLM initialized: gemini-2.0-flash-lite")
+        logger.info("LLM initialized: gemini-3.6-flash")
         return _llm
     except Exception as e:
         logger.error(f"Failed to initialize LLM: {e}")

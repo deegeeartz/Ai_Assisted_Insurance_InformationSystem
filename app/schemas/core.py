@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr
 from typing import Optional, Literal
 from datetime import datetime
 
@@ -21,8 +21,7 @@ class UserResponse(BaseModel):
     api_key: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Token(BaseModel):
@@ -54,8 +53,7 @@ class PaymentResponse(BaseModel):
     status: str
     gateway_reference: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- SLA Schemas ---
@@ -66,8 +64,7 @@ class SLAResponse(BaseModel):
     is_breached: bool
     measured_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Webhook Schemas ---
@@ -83,5 +80,5 @@ class WebhookResponse(BaseModel):
     url: str
     is_active: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+

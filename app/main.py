@@ -1,16 +1,38 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from app.core.config import settings
+from contextlib import asynccontextmanager
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# --- Startup/Shutdown Lifespan: Create Tables & Seed Data ---
+from app.db.base import Base
+from app.db.session import engine, AsyncSessionLocal
+from app.models import core, manual  # Import all models so they register with Base
+from app.models.audit import AuditLog, UnderwritingDecisionLog
+from app.models.chat_log import ChatLog
+from app.db.init_db import init_db
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if settings.AUTO_CREATE_TABLES:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+    if settings.AUTO_SEED_DATA:
+        async with AsyncSessionLocal() as db:
+            await init_db(db)
+    yield
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     description="InsurBridge AI - Liquid Logic Insurance Infrastructure",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 @app.exception_handler(Exception)
@@ -19,7 +41,12 @@ async def global_exception_handler(request: Request, exc: Exception):
     content = {"detail": "Internal server error"}
     if settings.EXPOSE_ERROR_DETAILS:
         content["error"] = str(exc)
-    return JSONResponse(status_code=500, content=content)
+    response = JSONResponse(status_code=500, content=content)
+    origin = request.headers.get("origin")
+    if origin and origin in origins:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -60,25 +87,8 @@ app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["Aut
 app.include_router(manuals.router, prefix=f"{settings.API_V1_STR}/manuals", tags=["Manuals"])
 app.include_router(config.router, prefix=f"{settings.API_V1_STR}/config", tags=["Configuration"])
 app.include_router(underwrite.router, prefix=f"{settings.API_V1_STR}", tags=["Underwriting"])
-app.include_router(operations.router, prefix="/api/v1", tags=["operations"])
-app.include_router(partners.router, prefix="/api/v1/partners", tags=["partners"])
-app.include_router(compliance.router, prefix="/api/v1/compliance", tags=["compliance"])
-app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+app.include_router(operations.router, prefix=f"{settings.API_V1_STR}", tags=["operations"])
+app.include_router(partners.router, prefix=f"{settings.API_V1_STR}/partners", tags=["partners"])
+app.include_router(compliance.router, prefix=f"{settings.API_V1_STR}/compliance", tags=["compliance"])
+app.include_router(admin.router, prefix=f"{settings.API_V1_STR}/admin", tags=["admin"])
 
-
-# --- Startup: Create Tables & Seed Data ---
-from app.db.base import Base
-from app.db.session import engine, AsyncSessionLocal
-from app.models import core, manual  # Import all models so they register with Base
-from app.models.chat_log import ChatLog
-from app.db.init_db import init_db
-
-@app.on_event("startup")
-async def startup_event():
-    if settings.AUTO_CREATE_TABLES:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-
-    if settings.AUTO_SEED_DATA:
-        async with AsyncSessionLocal() as db:
-            await init_db(db)

@@ -14,6 +14,8 @@ export interface CoverageBlock {
 }
 
 export interface PolicyState {
+  holderName?: string;
+  holderEmail?: string;
   age: number;
   gender: string;
   occupation: string;
@@ -168,32 +170,52 @@ export async function getProductSchema(productType: string): Promise<any> {
 //  UNDERWRITING
 // ============================================================
 export async function submitUnderwriting(state: PolicyState): Promise<UnderwritingResponse> {
-  const productType = state.selectedCoverage.join(', ') || "General Insurance";
-  
-  let nlpQuery = `I am a ${state.age} year old ${state.gender} ${state.occupation} looking for ${productType}.`;
-  if (state.dynamicFields) {
-    const extras = Object.entries(state.dynamicFields)
-      .filter(([_, v]) => v && v.trim() !== '')
-      .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`)
-      .join(', ');
-    if (extras) nlpQuery += ` ${extras}`;
-  }
+  const selectedProduct = state.selectedCoverage[0] || 'life_basic';
+  let targetProductType = 'life';
+  if (selectedProduct.includes('auto')) targetProductType = 'auto';
+  else if (selectedProduct.includes('gadget') || selectedProduct.includes('screen') || selectedProduct.includes('extended')) targetProductType = 'gadget';
+  else if (selectedProduct.includes('home')) targetProductType = 'home';
+
+  const userFields = state.dynamicFields || {};
+
+  const extras = Object.entries(userFields)
+    .filter(([_, v]) => v && String(v).trim() !== '')
+    .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`)
+    .join(', ');
+
+  const nlpQuery = `I am a ${state.age} year old ${state.gender} ${state.occupation} applying for ${targetProductType} insurance (${selectedProduct}). Underwriting Requirements: ${extras}.`;
 
   const res = await fetch(`${API_URL}/underwrite`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      holder_name: state.holderName || undefined,
+      holder_email: state.holderEmail || undefined,
       age: state.age,
       gender: state.gender,
       occupation: state.occupation,
       role: "consumer",
+      product_type: targetProductType,
       natural_language_query: nlpQuery,
-      coverage_selection: []
+      coverage_selection: [{ 
+        id: selectedProduct, 
+        name: selectedProduct, 
+        description: selectedProduct, 
+        base_price: state.estimatedPremium || 0, 
+        icon: "Shield", 
+        enabled: true 
+      }]
     }),
   });
   if (!res.ok) {
     const error = await res.json();
-    throw new Error(error.detail || 'Underwriting failed');
+    let msg = 'Underwriting failed';
+    if (typeof error.detail === 'string') {
+      msg = error.detail;
+    } else if (Array.isArray(error.detail)) {
+      msg = error.detail.map((e: any) => `${e.loc ? e.loc.filter((x: any) => x !== 'body').join('.') : ''}: ${e.msg}`).join('; ');
+    }
+    throw new Error(msg);
   }
   return res.json();
 }

@@ -10,6 +10,7 @@ from app.services.policy_number import generate_policy_number
 from app.services.auth import get_user_by_api_key, get_current_user
 from app.models.core import Policy, Payment, User
 from app.models.chat_log import ChatLog
+from app.models.audit import AuditLog, UnderwritingDecisionLog
 from app.services.sla import record_policy_sla_event
 from app.services.tenant import policy_tenant_from_product
 import json
@@ -124,13 +125,34 @@ async def underwrite(
 
     decision = await execute_underwriting(request, manual)
 
+    partner_user = None
+    if api_key:
+        partner_user = await get_user_by_api_key(api_key, db)
+
     if decision.status == "approved":
         decision.policy_number = generate_policy_number(manual.product_type)
 
-        partner_user = None
-        if api_key:
-            partner_user = await get_user_by_api_key(api_key, db)
+    # Log the decision regardless of outcome (Fix #5)
+    decision_log = UnderwritingDecisionLog(
+        product_type=manual.product_type,
+        tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
+        applicant_age=request.age,
+        applicant_name=request.holder_name or f"Anonymous Applicant ({request.age})",
+        applicant_email=request.holder_email,
+        status=decision.status,
+        reason=decision.reason,
+        premium_monthly=str(decision.premium_monthly) if decision.premium_monthly else None,
+        premium_annual=str(decision.premium_annual) if decision.premium_annual else None,
+        policy_number=decision.policy_number,
+        channel="d2c",
+        partner_id=partner_user.id if partner_user else None,
+    )
+    db.add(decision_log)
+    await db.commit()
 
+    if decision.status == "approved":
+        from datetime import datetime, timedelta
+        
         new_policy = Policy(
             policy_number=decision.policy_number,
             product_type=manual.product_type,
@@ -143,7 +165,8 @@ async def underwrite(
             premium_annual=decision.premium_annual,
             tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
             partner_id=partner_user.id if partner_user else None,
-            manual_id=manual.id
+            manual_id=manual.id,
+            expires_at=datetime.utcnow() + timedelta(hours=24)
         )
         db.add(new_policy)
         await db.commit()
@@ -222,12 +245,34 @@ async def soap_underwrite(
         
     decision = await execute_underwriting(request_obj, manual)
 
+    partner_user = None
+    if api_key:
+        partner_user = await get_user_by_api_key(api_key, db)
+
     if decision.status == "approved":
         decision.policy_number = generate_policy_number(manual.product_type)
-        partner_user = None
-        if api_key:
-            partner_user = await get_user_by_api_key(api_key, db)
 
+    # Log the decision regardless of outcome (Fix #5)
+    decision_log = UnderwritingDecisionLog(
+        product_type=manual.product_type,
+        tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
+        applicant_age=request_obj.age,
+        applicant_name=request_obj.holder_name or f"Anonymous Applicant ({request_obj.age})",
+        applicant_email=request_obj.holder_email,
+        status=decision.status,
+        reason=decision.reason,
+        premium_monthly=str(decision.premium_monthly) if decision.premium_monthly else None,
+        premium_annual=str(decision.premium_annual) if decision.premium_annual else None,
+        policy_number=decision.policy_number,
+        channel="soap",
+        partner_id=partner_user.id if partner_user else None,
+    )
+    db.add(decision_log)
+    await db.commit()
+
+    if decision.status == "approved":
+        from datetime import datetime, timedelta
+        
         new_policy = Policy(
             policy_number=decision.policy_number,
             product_type=manual.product_type,
@@ -240,7 +285,8 @@ async def soap_underwrite(
             premium_annual=decision.premium_annual,
             tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
             partner_id=partner_user.id if partner_user else None,
-            manual_id=manual.id
+            manual_id=manual.id,
+            expires_at=datetime.utcnow() + timedelta(hours=24)
         )
         db.add(new_policy)
         await db.commit()
@@ -264,8 +310,13 @@ async def mock_pay(
     """
     Mock payment endpoint. Simulates a Paystack-style payment.
     No real money moves — generates a fake reference and activates the policy.
+    Uses SELECT ... FOR UPDATE to prevent duplicate payments under concurrency.
     """
-    result = await db.execute(select(Policy).where(Policy.policy_number == policy_number))
+    result = await db.execute(
+        select(Policy)
+        .where(Policy.policy_number == policy_number)
+        .with_for_update()
+    )
     policy = result.scalars().first()
     if not policy:
         raise HTTPException(status_code=404, detail="Policy not found")
@@ -433,8 +484,8 @@ RULES:
   "data": {{}},
   "suggestions": ["suggestion 1", "suggestion 2"]
 }}
-3. For "start_quote" action, include in data: {{"age": <number>, "product_type": "<type>"}}
-   - If the user hasn't provided age or product type, set action to "text_reply" and ASK for the missing info.
+3. For "start_quote" action, include in data: {{"age": <number>, "product_type": "<type>", "holder_name": "<full name>", "holder_email": "<email>", "details": "<all other user details like location, BMI, sum assured, VIN, occupation, etc.>"}}
+   - If the user hasn't provided age, product type, full name, or email, set action to "text_reply" and ASK for the missing info. This is mandatory for KYC.
 4. For "initiate_payment", include in data: {{"policy_number": "<number>"}}
 5. For "show_policies", include in data: {{"holder_email": "<email>"}} or empty if unknown.
 6. For "text_reply", just put your answer in "message".
@@ -465,6 +516,7 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
             product_type=product_type,
             role=role,
             holder_name=data.get("holder_name", f"Chat User ({age})"),
+            natural_language_query=data.get("details", ""),
             coverage_selection=[]
         )
         manual = await route_to_product(request, db)
@@ -478,6 +530,27 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
         if decision.status == "approved":
             policy_number = generate_policy_number(manual.product_type)
             decision.policy_number = policy_number
+
+        # Log the decision regardless of outcome (Fix #5)
+        decision_log = UnderwritingDecisionLog(
+            product_type=manual.product_type,
+            tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
+            applicant_age=age,
+            applicant_name=data.get("holder_name", f"Chat User ({age})"),
+            applicant_email=data.get("holder_email"),
+            status=decision.status,
+            reason=decision.reason,
+            premium_monthly=str(decision.premium_monthly) if decision.premium_monthly else None,
+            premium_annual=str(decision.premium_annual) if decision.premium_annual else None,
+            policy_number=policy_number,
+            channel="chat",
+            partner_id=user.id if user and user.role == "partner" else None,
+        )
+        db.add(decision_log)
+        await db.commit()
+
+        if decision.status == "approved":
+            from datetime import datetime, timedelta
             
             new_policy = Policy(
                 policy_number=policy_number,
@@ -490,7 +563,8 @@ async def execute_chat_action(action: str, data: dict, role: str, db: AsyncSessi
                 premium_monthly=decision.premium_monthly,
                 premium_annual=decision.premium_annual,
                 tenant_id=manual.tenant_id or policy_tenant_from_product(manual.product_type),
-                manual_id=manual.id
+                manual_id=manual.id,
+                expires_at=datetime.utcnow() + timedelta(hours=24)
             )
             db.add(new_policy)
             await db.commit()
@@ -722,7 +796,7 @@ async def agentic_chat(
         user_email=user.email if user else None,
         role=request.role,
         message=request.message,
-        model="gemini-2.0-flash-lite",
+        model="gemini-3.6-flash",
         status="pending"
     )
 
@@ -853,6 +927,7 @@ async def agentic_chat(
             enriched_data = await execute_chat_action(action, action_data, role, db, user)
         except Exception as e:
             logger.error(f"Action execution failed: {e}")
+            await db.rollback()
             enriched_data = {"error": str(e)}
 
     response_payload = {
@@ -876,6 +951,7 @@ async def agentic_chat(
         logger.info(f"CHAT_LOG: Role={role} Msg='{request.message[:50]}...' Action={action} Latency={chat_log.latency_ms:.0f}ms Status=success")
     except Exception as e:
         logger.error(f"Failed to save chat log: {e}")
+        await db.rollback()
 
     return response_payload
 
@@ -1030,21 +1106,32 @@ async def get_product_schema(product_type: str):
     
     if "life" in product:
         dynamic_requirements = {
-            "medical_history": "string (required: list pre-existing conditions)",
-            "smoker_status": "boolean (required)",
-            "beneficiary_name": "string (optional)"
+            "residency": "string (e.g. Resident of Nigeria)",
+            "bmi": "number (e.g. 22.5)",
+            "sum_assured": "number (e.g. 5,000,000 NGN)"
         }
-    elif "gadget" in product or "device" in product:
+    elif "gadget" in product or "device" in product or "screen" in product or "warranty" in product:
         dynamic_requirements = {
-            "device_imei": "string (required: 15 digit serial)",
-            "device_model": "string (required)",
-            "purchase_date": "string YYYY-MM-DD (required)"
+            "device_imei": "string (15 digit IMEI)",
+            "device_model": "string (e.g. iPhone 15 Pro)",
+            "purchase_date": "string YYYY-MM-DD (e.g. 2024-01-15)"
         }
-    elif "auto" in product or "motor" in product:
+    elif "auto" in product or "motor" in product or "vehicle" in product:
         dynamic_requirements = {
-            "vehicle_vin": "string (required: 17 chars)",
-            "license_plate": "string (required)",
-            "vehicle_usage": "string (Commercial or Private)"
+            "vehicle_vin": "string (17 char VIN)",
+            "license_plate": "string (e.g. KJA-123AA)",
+            "vehicle_usage": "string (Private or Commercial)"
+        }
+    elif "home" in product or "house" in product or "property" in product:
+        dynamic_requirements = {
+            "property_address": "string (e.g. 12 Marina, Lagos)",
+            "building_type": "string (e.g. Duplex, Apartment)",
+            "property_value": "number (e.g. 25,000,000 NGN)"
+        }
+    else:
+        dynamic_requirements = {
+            "identification_number": "string (e.g. NIN or Drivers License)",
+            "coverage_amount": "number (e.g. 1,000,000 NGN)"
         }
         
     return {
