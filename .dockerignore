@@ -1,0 +1,39 @@
+# Keep secrets and local artifacts out of the Docker build context
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+.zcode
+.vscode
+.idea
+
+.venv
+venv
+__pycache__
+**/__pycache__
+*.py[cod]
+.pytest_cache
+
+*.log
+debug*.txt
+*_errors.txt
+error_extract.txt
+pytest_out.txt
+test_debug.txt
+test_final.txt
+pip_freeze.txt
+test_underwrite_result.log
+
+# Frontend build inputs are copied inside their own Dockerfiles
+frontend
+node_modules
+**/node_modules
+
+# Runtime output and uploads
+generated_docs
+uploaded_manuals
+
+# Tests are not needed in the image
+.pytest_cache
+tests

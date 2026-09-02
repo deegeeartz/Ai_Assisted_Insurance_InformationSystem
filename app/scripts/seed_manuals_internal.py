@@ -6,12 +6,19 @@ BASE_URL = "http://localhost:8000/api/v1"
 MANUALS_DIR = "/app/app/manuals"
 
 def get_token():
+    email = os.environ.get("SEED_ADMIN_EMAIL")
+    password = os.environ.get("SEED_ADMIN_PASSWORD")
+    if not email or not password:
+        print("Set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD in the environment to seed manuals.")
+        return None
     max_retries = 5
     for i in range(max_retries):
         try:
             print(f"Attempting login... (Try {i+1}/{max_retries})")
-            data = {"username": "admin@heirs-general.com", "password": "heirs123"}
-            response = requests.post(f"{BASE_URL}/auth/login", data=data)
+            response = requests.post(
+                f"{BASE_URL}/auth/login",
+                json={"email": email, "password": password},
+            )
             if response.status_code == 200:
                 print("Login successful!")
                 return response.json()["access_token"]

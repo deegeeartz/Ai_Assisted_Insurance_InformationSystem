@@ -14,8 +14,21 @@ dist/
 *.whl
 .env
 .env.*
+!.env.example
 uploaded_manuals/*.enc
 *.log
+
+# Debug / scratch artifacts
+debug*.txt
+*_errors.txt
+error_extract.txt
+pytest_out.txt
+test_debug.txt
+test_final.txt
+test_underwrite_result.log
+pip_freeze.txt
+generated_docs/
+.zcode/
 .idea/
 .vscode/
 *.swp
